@@ -2,7 +2,8 @@ import sqlite3
 from pathlib import Path
 
 # Database file will be created inside backend/
-DATABASE_PATH = Path(__file__).resolve().parent / "retinaai.db"
+import tempfile
+DATABASE_PATH = Path(tempfile.gettempdir()) / "retinaai.db"
 
 
 def get_connection():
@@ -68,8 +69,8 @@ def init_database():
     conn.commit()
     conn.close()
 
-    print("✅ RetinaAI database initialized successfully!")
-    print(f"📁 Database: {DATABASE_PATH}")
+print("RetinaAI database initialized successfully!")
+print(f"Database: {DATABASE_PATH}")
 
 
 if __name__ == "__main__":

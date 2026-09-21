@@ -39,4 +39,4 @@ model.load_state_dict(
 model = model.to(device)
 model.eval()
 
-print("✅ RetinaAI model loaded successfully!")
+print("RetinaAI model loaded successfully!")

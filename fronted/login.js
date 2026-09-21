@@ -1,4 +1,4 @@
-const API_URL = "https://retinaai-backend-5h1p.onrender.com";
+const API_URL = "http://127.0.0.1:5000";
 
 const loginForm = document.getElementById("loginForm");
 const emailInput = document.getElementById("email");

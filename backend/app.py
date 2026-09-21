@@ -13,10 +13,10 @@ from pathlib import Path
 from datetime import datetime
 import uuid
 
-from model import model, device
+from backend.model import model, device
 
-from database import init_database, get_connection
-from auth import hash_password, verify_password, create_admin
+from backend.database import init_database, get_connection
+from backend.auth import hash_password, verify_password, create_admin
 
 
 # =========================================================
@@ -36,7 +36,8 @@ create_admin()
 
 BASE_DIR = Path(__file__).resolve().parent
 
-UPLOAD_DIR = BASE_DIR / "uploads"
+import tempfile
+UPLOAD_DIR = Path(tempfile.gettempdir()) / "retinaai_uploads"
 SCREENING_DIR = UPLOAD_DIR / "screenings"
 
 SCREENING_DIR.mkdir(
@@ -138,11 +139,8 @@ def create_screening_folder():
 
 @app.route("/", methods=["GET"])
 def home():
-
-    return jsonify({
-        "status": "success",
-        "message": "RetinaAI backend is running!"
-    })
+    # Serve the login page as the home page
+    return send_from_directory(app.static_folder, "login.html")
 
 
 # =========================================================
