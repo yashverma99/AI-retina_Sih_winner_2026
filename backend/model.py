@@ -22,21 +22,28 @@ model.classifier[1] = nn.Linear(
     5
 )
 
-# Load checkpoint
-checkpoint = torch.load(
-    MODEL_PATH,
-    map_location=device,
-    weights_only=False
-)
+model_loaded = False
 
-print("Checkpoint loaded!")
+if MODEL_PATH.exists():
+    try:
+        # Load checkpoint
+        checkpoint = torch.load(
+            MODEL_PATH,
+            map_location=device,
+            weights_only=False
+        )
+        print("Checkpoint loaded!")
 
-# Load trained weights
-model.load_state_dict(
-    checkpoint["model_state_dict"]
-)
+        # Load trained weights
+        model.load_state_dict(
+            checkpoint["model_state_dict"]
+        )
+        model_loaded = True
+        print("RetinaAI model loaded successfully!")
+    except Exception as e:
+        print(f"Warning: Failed to load model checkpoint ({e}). Operating with initialized weights.")
+else:
+    print(f"Warning: Model checkpoint not found at {MODEL_PATH}. Operating with initialized weights.")
 
 model = model.to(device)
 model.eval()
-
-print("RetinaAI model loaded successfully!")

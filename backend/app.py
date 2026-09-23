@@ -13,7 +13,7 @@ from pathlib import Path
 from datetime import datetime
 import uuid
 
-from backend.model import model, device
+from backend.model import model, device, model_loaded
 
 from backend.database import init_database, get_connection
 from backend.auth import hash_password, verify_password, create_admin
@@ -25,6 +25,16 @@ from backend.auth import hash_password, verify_password, create_admin
 
 app = Flask(__name__)
 CORS(app)
+
+# Limit uploads to 16MB to protect against memory exhaustion DoS
+app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
+
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    return jsonify({
+        "success": False,
+        "message": "File too large. Maximum allowed size is 16 MB."
+    }), 413
 
 init_database()
 create_admin()
@@ -69,6 +79,9 @@ transform = transforms.Compose([
 def prepare_image(file):
 
     image = Image.open(file).convert("RGB")
+
+    if max(image.size) > 800:
+        image.thumbnail((800, 800))
 
     tensor = transform(image).unsqueeze(0)
 
@@ -139,8 +152,10 @@ def create_screening_folder():
 
 @app.route("/", methods=["GET"])
 def home():
-    # Serve the login page as the home page
-    return send_from_directory(app.static_folder, "login.html")
+    return jsonify({
+        "status": "success",
+        "message": "RetinaAI backend is running!"
+    })
 
 
 # =========================================================
@@ -422,20 +437,26 @@ def enhance():
 
         file = request.files["image"]
 
+        if not file or not file.filename:
+            return jsonify({
+                "success": False,
+                "message": "Empty or missing image file"
+            }), 400
+
         image = Image.open(
             file
         ).convert("RGB")
 
+        if max(image.size) > 800:
+            image.thumbnail((800, 800))
 
         enhanced = ImageEnhance.Contrast(
             image
         ).enhance(1.25)
 
-
         enhanced = ImageEnhance.Sharpness(
             enhanced
         ).enhance(1.2)
-
 
         return jsonify({
 
@@ -447,7 +468,6 @@ def enhance():
 
         })
 
-
     except Exception as e:
 
         print(
@@ -457,8 +477,8 @@ def enhance():
 
         return jsonify({
             "success": False,
-            "message": str(e)
-        }), 500
+            "message": "Invalid or corrupted image file."
+        }), 400
 
 
 # =========================================================
@@ -478,8 +498,15 @@ def predict():
 
     try:
 
+        file = request.files["image"]
+        if not file or not file.filename:
+            return jsonify({
+                "success": False,
+                "message": "Empty or missing image file"
+            }), 400
+
         image, tensor = prepare_image(
-            request.files["image"]
+            file
         )
 
 
@@ -613,6 +640,11 @@ def gradcam():
     try:
 
         file = request.files["image"]
+        if not file or not file.filename:
+            return jsonify({
+                "success": False,
+                "message": "Empty or missing image file"
+            }), 400
 
         patient_id = request.form.get(
             "patient_id",
@@ -624,6 +656,9 @@ def gradcam():
             file
         ).convert("RGB")
 
+        # Downsample large images to max 800px to prevent OOM crash on 512MB RAM cloud containers
+        if max(image.size) > 800:
+            image.thumbnail((800, 800))
 
         tensor = transform(
             image
@@ -668,39 +703,32 @@ def gradcam():
             )
         )
 
-
         backward_handle = (
             target_layer.register_full_backward_hook(
                 backward_hook
             )
         )
 
+        try:
+            model.zero_grad()
+            with torch.enable_grad():
+                output = model(
+                    tensor
+                )
 
-        model.zero_grad()
+                predicted_class = output.argmax(
+                    dim=1
+                ).item()
 
+                score = output[
+                    0,
+                    predicted_class
+                ]
 
-        output = model(
-            tensor
-        )
-
-
-        predicted_class = output.argmax(
-            dim=1
-        ).item()
-
-
-        score = output[
-            0,
-            predicted_class
-        ]
-
-
-        score.backward()
-
-
-        forward_handle.remove()
-
-        backward_handle.remove()
+                score.backward()
+        finally:
+            forward_handle.remove()
+            backward_handle.remove()
 
 
         activation = activations[0]
@@ -763,14 +791,14 @@ def gradcam():
 
 
         original_array = np.array(
-            image
+            image,
+            dtype=np.float32
         )
-
 
         heatmap = np.zeros_like(
-            original_array
+            original_array,
+            dtype=np.float32
         )
-
 
         heatmap[:, :, 0] = cam_array
 
@@ -778,17 +806,11 @@ def gradcam():
             cam_array // 3
         )
 
-
         overlay = (
-
             0.55 * original_array
-
             +
-
             0.45 * heatmap
-
         )
-
 
         overlay = np.uint8(
             np.clip(
@@ -798,10 +820,14 @@ def gradcam():
             )
         )
 
-
         overlay_image = Image.fromarray(
             overlay
         )
+
+        # Free intermediate array memory immediately
+        del activations, gradients, output, score, activation, gradient, cam, cam_array, original_array, heatmap, overlay
+        import gc
+        gc.collect()
 
 
         # =================================================

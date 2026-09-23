@@ -57,8 +57,9 @@ for name, path in files.items():
 
 print("\n[3] Test Image")
 
-if os.path.exists("test_image.jpg"):
-    print("    test_image.jpg       OK")
+test_img = "final_explainability_demo.png" if os.path.exists("final_explainability_demo.png") else "test_image.jpg"
+if os.path.exists(test_img):
+    print(f"    {test_img:<20} OK")
 else:
     print("    test_image.jpg       MISSING")
 
@@ -73,25 +74,33 @@ print("=" * 60)
 
 print("\nPipeline:")
 print("Fundus Image")
-print("     ↓")
+print("     |")
+print("     v")
 print("Quality Gate")
-print("     ↓")
+print("     |")
+print("     v")
 print("Preprocessing")
-print("     ↓")
+print("     |")
+print("     v")
 print("EfficientNet-B0")
-print("     ↓")
+print("     |")
+print("     v")
 print("5-Class DR Prediction")
-print("     ↓")
+print("     |")
+print("     v")
 print("Grad-CAM")
-print("     ↓")
+print("     |")
+print("     v")
 print("Evidence Fusion")
-print("     ↓")
+print("     |")
+print("     v")
 print("Referral Support")
-print("     ↓")
+print("     |")
+print("     v")
 print("Doctor Dashboard")
 
 print("\nWorkflow Simulation:")
-print("PHC → AI Screening → Referral Queue → Doctor Review")
+print("PHC -> AI Screening -> Referral Queue -> Doctor Review")
 
 print("\nReady for SIH demonstration.")
 print("=" * 60)

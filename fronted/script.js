@@ -1315,78 +1315,64 @@ async function analyseImage() {
         }
 
 
-        const gradcamResponse =
-            await fetchWithTimeout(
-                GRADCAM_API_URL,
-                {
-                    method: "POST",
-                    body: gradcamFormData
+        try {
+            const gradcamResponse =
+                await fetchWithTimeout(
+                    GRADCAM_API_URL,
+                    {
+                        method: "POST",
+                        body: gradcamFormData
+                    }
+                );
+
+            if (gradcamResponse.ok) {
+                const gradcamData =
+                    await gradcamResponse.json();
+
+                console.log(
+                    "Grad-CAM response:",
+                    gradcamData
+                );
+
+                if (gradcamData.success) {
+                    currentResult.imagePath =
+                        gradcamData.image_path ||
+                        "";
+
+                    currentResult.gradcamPath =
+                        gradcamData.gradcam_path ||
+                        "";
+
+                    displayGradCAM(
+                        gradcamData
+                    );
+
+                    console.log(
+                        "✅ Images persisted:",
+                        currentResult.imagePath,
+                        currentResult.gradcamPath
+                    );
+                } else {
+                    console.warn(
+                        "Grad-CAM generation failed:",
+                        gradcamData.error ||
+                        gradcamData.message
+                    );
+                    hideGradCAM();
                 }
-            );
-
-
-        const gradcamData =
-            await gradcamResponse.json();
-
-
-        console.log(
-            "Grad-CAM response:",
-            gradcamData
-        );
-
-
-        if (
-            gradcamResponse.ok &&
-            gradcamData.success
-        ) {
-
-            // -------------------------------------------------
-            // STORE PERSISTENT PATHS
-            // -------------------------------------------------
-
-            currentResult.imagePath =
-                gradcamData.image_path ||
-                "";
-
-            currentResult.gradcamPath =
-                gradcamData.gradcam_path ||
-                "";
-
-
-            displayGradCAM(
-                gradcamData
-            );
-
-
-            console.log(
-                "✅ Images persisted:"
-            );
-
-
-            console.log(
-                "Original:",
-                currentResult.imagePath
-            );
-
-
-            console.log(
-                "Grad-CAM:",
-                currentResult.gradcamPath
-            );
-
-        }
-
-        else {
-
+            } else {
+                console.warn(
+                    "Grad-CAM request returned non-OK status:",
+                    gradcamResponse.status
+                );
+                hideGradCAM();
+            }
+        } catch (gradcamError) {
             console.warn(
-                "Grad-CAM generation failed:",
-                gradcamData.error ||
-                gradcamData.message
+                "Grad-CAM generation skipped or timed out:",
+                gradcamError
             );
-
-
             hideGradCAM();
-
         }
 
 

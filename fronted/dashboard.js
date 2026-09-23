@@ -7,7 +7,11 @@
 // Example:
 // const API_BASE_URL = "https://retinaai-backend.vercel.app";
 
-const API_BASE_URL = "https://retinaai-backend-5h1p.onrender.com";
+const API_BASE_URL =
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1"
+        ? "http://127.0.0.1:5000"
+        : "https://retinaai-backend-5h1p.onrender.com";
 
 
 // =====================================================

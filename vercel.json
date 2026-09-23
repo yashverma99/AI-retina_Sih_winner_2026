@@ -5,6 +5,10 @@
       "destination": "/fronted/login.html"
     },
     {
+      "source": "/:page(dashboard|index|login|signup|patients|patient-profile|reports|report|analytics|settings|screening-report)",
+      "destination": "/fronted/:page.html"
+    },
+    {
       "source": "/:page(dashboard|index|login|signup|patients|patient-profile|reports|report|analytics|settings|screening-report).html",
       "destination": "/fronted/:page.html"
     },

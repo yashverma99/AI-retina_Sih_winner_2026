@@ -36,7 +36,7 @@ def create_admin():
 
     if existing:
 
-        print("⚠️ Admin already exists!")
+        print("[INFO] Admin already exists!")
 
         conn.close()
 
