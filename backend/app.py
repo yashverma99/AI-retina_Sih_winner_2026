@@ -12,6 +12,7 @@ import base64
 from pathlib import Path
 from datetime import datetime
 import uuid
+import numpy as np
 
 from backend.model import model, device, model_loaded
 
@@ -29,12 +30,14 @@ CORS(app)
 # Limit uploads to 16MB to protect against memory exhaustion DoS
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 
+
 @app.errorhandler(413)
 def request_entity_too_large(error):
     return jsonify({
         "success": False,
         "message": "File too large. Maximum allowed size is 16 MB."
     }), 413
+
 
 init_database()
 create_admin()
@@ -47,6 +50,7 @@ create_admin()
 BASE_DIR = Path(__file__).resolve().parent
 
 import tempfile
+
 UPLOAD_DIR = Path(tempfile.gettempdir()) / "retinaai_uploads"
 SCREENING_DIR = UPLOAD_DIR / "screenings"
 
@@ -76,8 +80,171 @@ transform = transforms.Compose([
 # HELPER FUNCTIONS
 # =========================================================
 
-def prepare_image(file):
+def validate_fundus_image(image):
+    """
+    Lightweight fundus-image quality gate.
 
+    This is NOT a medical-grade fundus classifier.
+    It is designed to reject obvious non-retinal/random images
+    before sending them to the DR classification model.
+    """
+
+    try:
+        image = image.convert("RGB")
+
+        width, height = image.size
+
+        # -------------------------------------------------
+        # 1. Basic resolution check
+        # -------------------------------------------------
+
+        if width < 160 or height < 160:
+            return (
+                False,
+                "Image resolution is too low. "
+                "Please upload a clearer retinal fundus image."
+            )
+
+        # -------------------------------------------------
+        # 2. Extreme aspect-ratio rejection
+        # -------------------------------------------------
+
+        aspect_ratio = max(width, height) / min(width, height)
+
+        if aspect_ratio > 1.8:
+            return (
+                False,
+                "Invalid image shape. "
+                "Please upload a retinal fundus image."
+            )
+
+        # -------------------------------------------------
+        # 3. Convert to NumPy
+        # -------------------------------------------------
+
+        small = image.copy()
+        small.thumbnail((256, 256))
+
+        arr = np.asarray(small).astype(np.float32)
+
+        gray = (
+            0.299 * arr[:, :, 0]
+            + 0.587 * arr[:, :, 1]
+            + 0.114 * arr[:, :, 2]
+        )
+
+        # -------------------------------------------------
+        # 4. Check brightness distribution
+        # -------------------------------------------------
+
+        mean_brightness = float(gray.mean())
+        brightness_std = float(gray.std())
+
+        if mean_brightness < 25:
+            return (
+                False,
+                "Image is too dark. "
+                "Please upload a properly illuminated retinal fundus image."
+            )
+
+        if mean_brightness > 245:
+            return (
+                False,
+                "Image is overexposed. "
+                "Please upload a retinal fundus image."
+            )
+
+        # -------------------------------------------------
+        # 5. Fundus images usually contain a concentrated
+        #    retinal field surrounded by darker regions.
+        # -------------------------------------------------
+
+        h, w = gray.shape
+
+        center_y = h // 2
+        center_x = w // 2
+
+        radius = int(min(h, w) * 0.42)
+
+        y, x = np.ogrid[:h, :w]
+
+        center_mask = (
+            (x - center_x) ** 2
+            + (y - center_y) ** 2
+            <= radius ** 2
+        )
+
+        center_pixels = gray[center_mask]
+
+        if len(center_pixels) == 0:
+            return (
+                False,
+                "Unable to detect a retinal image region."
+            )
+
+        center_mean = float(center_pixels.mean())
+
+        # -------------------------------------------------
+        # 6. Compare central retinal region with image
+        # -------------------------------------------------
+
+        if center_mean < 35:
+            return (
+                False,
+                "No clear retinal region detected. "
+                "Please upload a retinal fundus image."
+            )
+
+        # -------------------------------------------------
+        # 7. Basic color characteristics
+        # -------------------------------------------------
+
+        red = arr[:, :, 0]
+        green = arr[:, :, 1]
+        blue = arr[:, :, 2]
+
+        red_mean = float(red.mean())
+        green_mean = float(green.mean())
+        blue_mean = float(blue.mean())
+
+        # Fundus photographs generally have a warm/red
+        # retinal appearance. This is intentionally a soft check.
+        warm_ratio = (
+            red_mean + 1.0
+        ) / (
+            green_mean + blue_mean + 2.0
+        )
+
+        if warm_ratio < 0.55:
+            return (
+                False,
+                "The uploaded image does not appear to be "
+                "a retinal fundus photograph."
+            )
+
+        # -------------------------------------------------
+        # 8. Texture check
+        # -------------------------------------------------
+
+        if brightness_std < 10:
+            return (
+                False,
+                "Image contains insufficient retinal detail. "
+                "Please upload a clearer fundus image."
+            )
+
+        return True, "Fundus image quality check passed."
+
+    except Exception as e:
+        print("Fundus validation error:", e)
+
+        return (
+            False,
+            "Unable to validate the uploaded image."
+        )
+
+
+def prepare_image(file):
     image = Image.open(file).convert("RGB")
 
     if max(image.size) > 800:
@@ -89,7 +256,6 @@ def prepare_image(file):
 
 
 def image_to_base64(image):
-
     buffer = BytesIO()
 
     image.save(
@@ -105,7 +271,6 @@ def image_to_base64(image):
 
 
 def save_image(image, folder, filename):
-
     folder = Path(folder)
 
     folder.mkdir(
@@ -125,16 +290,13 @@ def save_image(image, folder, filename):
 
 
 def create_screening_folder():
-
     timestamp = datetime.now().strftime(
         "%Y%m%d_%H%M%S"
     )
 
     unique_id = uuid.uuid4().hex[:8]
 
-    folder_name = (
-        f"{timestamp}_{unique_id}"
-    )
+    folder_name = f"{timestamp}_{unique_id}"
 
     folder = SCREENING_DIR / folder_name
 
@@ -164,11 +326,9 @@ def home():
 
 @app.route("/login", methods=["POST"])
 def login():
-
     data = request.get_json()
 
     if not data:
-
         return jsonify({
             "success": False,
             "message": "Invalid request"
@@ -185,14 +345,12 @@ def login():
     )
 
     if not email or not password:
-
         return jsonify({
             "success": False,
             "message": "Email and password are required"
         }), 400
 
     try:
-
         conn = get_connection()
 
         user = conn.execute(
@@ -212,7 +370,6 @@ def login():
         conn.close()
 
         if not user:
-
             return jsonify({
                 "success": False,
                 "message": "Invalid email or password"
@@ -222,33 +379,24 @@ def login():
             password,
             user["password_hash"]
         ):
-
             return jsonify({
                 "success": False,
                 "message": "Invalid email or password"
             }), 401
 
         return jsonify({
-
             "success": True,
-
             "message": "Login successful",
-
             "user": {
                 "id": user["id"],
                 "name": user["name"],
                 "email": user["email"],
                 "role": user["role"]
             }
-
         })
 
     except Exception as e:
-
-        print(
-            "Login error:",
-            e
-        )
+        print("Login error:", e)
 
         return jsonify({
             "success": False,
@@ -262,11 +410,9 @@ def login():
 
 @app.route("/signup", methods=["POST"])
 def signup():
-
     data = request.get_json()
 
     if not data:
-
         return jsonify({
             "success": False,
             "message": "Invalid request"
@@ -292,49 +438,37 @@ def signup():
         ""
     )
 
-
     if not name:
-
         return jsonify({
             "success": False,
             "message": "Name is required"
         }), 400
 
-
     if not email:
-
         return jsonify({
             "success": False,
             "message": "Email is required"
         }), 400
 
-
     if "@" not in email or "." not in email:
-
         return jsonify({
             "success": False,
             "message": "Please enter a valid email address"
         }), 400
 
-
     if len(password) < 6:
-
         return jsonify({
             "success": False,
             "message": "Password must be at least 6 characters"
         }), 400
 
-
     if password != confirm_password:
-
         return jsonify({
             "success": False,
             "message": "Passwords do not match"
         }), 400
 
-
     try:
-
         conn = get_connection()
 
         existing_user = conn.execute(
@@ -346,9 +480,7 @@ def signup():
             (email,)
         ).fetchone()
 
-
         if existing_user:
-
             conn.close()
 
             return jsonify({
@@ -356,11 +488,7 @@ def signup():
                 "message": "An account with this email already exists"
             }), 409
 
-
-        password_hash = hash_password(
-            password
-        )
-
+        password_hash = hash_password(password)
 
         cursor = conn.execute(
             """
@@ -381,36 +509,25 @@ def signup():
             )
         )
 
-
         conn.commit()
 
         user_id = cursor.lastrowid
 
         conn.close()
 
-
         return jsonify({
-
             "success": True,
-
             "message": "Account created successfully",
-
             "user": {
                 "id": user_id,
                 "name": name,
                 "email": email,
                 "role": "admin"
             }
-
         }), 201
 
-
     except Exception as e:
-
-        print(
-            "Signup error:",
-            e
-        )
+        print("Signup error:", e)
 
         return jsonify({
             "success": False,
@@ -424,17 +541,13 @@ def signup():
 
 @app.route("/enhance", methods=["POST"])
 def enhance():
-
     if "image" not in request.files:
-
         return jsonify({
             "success": False,
             "message": "No image uploaded"
         }), 400
 
-
     try:
-
         file = request.files["image"]
 
         if not file or not file.filename:
@@ -443,9 +556,22 @@ def enhance():
                 "message": "Empty or missing image file"
             }), 400
 
-        image = Image.open(
-            file
-        ).convert("RGB")
+        image = Image.open(file).convert("RGB")
+
+        # -------------------------------------------------
+        # Fundus validation
+        # -------------------------------------------------
+
+        is_fundus, validation_message = validate_fundus_image(
+            image
+        )
+
+        if not is_fundus:
+            return jsonify({
+                "success": False,
+                "validation_failed": True,
+                "message": validation_message
+            }), 422
 
         if max(image.size) > 800:
             image.thumbnail((800, 800))
@@ -459,21 +585,12 @@ def enhance():
         ).enhance(1.2)
 
         return jsonify({
-
             "success": True,
-
-            "image": image_to_base64(
-                enhanced
-            )
-
+            "image": image_to_base64(enhanced)
         })
 
     except Exception as e:
-
-        print(
-            "Enhancement error:",
-            e
-        )
+        print("Enhancement error:", e)
 
         return jsonify({
             "success": False,
@@ -487,134 +604,103 @@ def enhance():
 
 @app.route("/predict", methods=["POST"])
 def predict():
-
     if "image" not in request.files:
-
         return jsonify({
             "success": False,
             "message": "No image uploaded"
         }), 400
 
-
     try:
-
         file = request.files["image"]
+
         if not file or not file.filename:
             return jsonify({
                 "success": False,
                 "message": "Empty or missing image file"
             }), 400
 
-        image, tensor = prepare_image(
-            file
+        # -------------------------------------------------
+        # Fundus validation
+        # -------------------------------------------------
+
+        try:
+            validation_image = Image.open(file).convert("RGB")
+
+        except Exception:
+            return jsonify({
+                "success": False,
+                "message": "Invalid or corrupted image file."
+            }), 400
+
+        is_fundus, validation_message = validate_fundus_image(
+            validation_image
         )
 
+        if not is_fundus:
+            return jsonify({
+                "success": False,
+                "validation_failed": True,
+                "message": validation_message
+            }), 422
+
+        # Reset file pointer before preprocessing
+        file.seek(0)
+
+        image, tensor = prepare_image(file)
 
         with torch.no_grad():
-
-            output = model(
-                tensor
-            )
+            output = model(tensor)
 
             probabilities = F.softmax(
                 output,
                 dim=1
             )[0]
 
-
         predicted_class = int(
-            torch.argmax(
-                probabilities
-            ).item()
+            torch.argmax(probabilities).item()
         )
-
 
         confidence = float(
-            probabilities[
-                predicted_class
-            ].item()
+            probabilities[predicted_class].item()
         )
-
 
         referable_probability = float(
             probabilities[2:].sum().item()
         )
 
-
         referable = (
             referable_probability >= 0.50
         )
 
-
         diagnoses = {
-
-            0:
-                "No Diabetic Retinopathy",
-
-            1:
-                "Mild Diabetic Retinopathy",
-
-            2:
-                "Moderate Diabetic Retinopathy",
-
-            3:
-                "Severe Diabetic Retinopathy",
-
-            4:
-                "Proliferative Diabetic Retinopathy"
-
+            0: "No Diabetic Retinopathy",
+            1: "Mild Diabetic Retinopathy",
+            2: "Moderate Diabetic Retinopathy",
+            3: "Severe Diabetic Retinopathy",
+            4: "Proliferative Diabetic Retinopathy"
         }
 
-
-        diagnosis = diagnoses[
-            predicted_class
-        ]
-
+        diagnosis = diagnoses[predicted_class]
 
         return jsonify({
-
             "success": True,
-
-            "grade":
-                predicted_class,
-
-            "diagnosis":
-                diagnosis,
-
-            "confidence":
-                confidence,
-
-            "referable_probability":
-                referable_probability,
-
-            "referable":
-                referable,
-
+            "grade": predicted_class,
+            "diagnosis": diagnosis,
+            "confidence": confidence,
+            "referable_probability": referable_probability,
+            "referable": referable,
             "probabilities": [
-
                 float(x.item())
-
                 for x in probabilities
-
             ]
-
         })
 
-
     except Exception as e:
-
-        print(
-            "Prediction error:",
-            e
-        )
+        print("Prediction error:", e)
 
         return jsonify({
-
             "success": False,
-
-            "message":
-                str(e)
-
+            "message": str(e)
         }), 500
 
 
@@ -624,22 +710,15 @@ def predict():
 
 @app.route("/gradcam", methods=["POST"])
 def gradcam():
-
     if "image" not in request.files:
-
         return jsonify({
-
             "success": False,
-
-            "message":
-                "No image uploaded"
-
+            "message": "No image uploaded"
         }), 400
 
-
     try:
-
         file = request.files["image"]
+
         if not file or not file.filename:
             return jsonify({
                 "success": False,
@@ -651,70 +730,55 @@ def gradcam():
             ""
         ).strip()
 
+        image = Image.open(file).convert("RGB")
 
-        image = Image.open(
-            file
-        ).convert("RGB")
+        # -------------------------------------------------
+        # Fundus validation
+        # -------------------------------------------------
 
-        # Downsample large images to max 800px to prevent OOM crash on 512MB RAM cloud containers
+        is_fundus, validation_message = validate_fundus_image(
+            image
+        )
+
+        if not is_fundus:
+            return jsonify({
+                "success": False,
+                "validation_failed": True,
+                "message": validation_message
+            }), 422
+
+        # Downsample large images to max 800px
+        # to prevent OOM crash on 512MB RAM cloud containers
         if max(image.size) > 800:
             image.thumbnail((800, 800))
 
-        tensor = transform(
-            image
-        ).unsqueeze(0)
-
+        tensor = transform(image).unsqueeze(0)
         tensor = tensor.to(device)
 
-
         activations = []
-
         gradients = []
-
 
         target_layer = model.features[-1]
 
+        def forward_hook(module, input, output):
+            activations.append(output)
 
-        def forward_hook(
-            module,
-            input,
-            output
-        ):
+        def backward_hook(module, grad_input, grad_output):
+            gradients.append(grad_output[0])
 
-            activations.append(
-                output
-            )
-
-
-        def backward_hook(
-            module,
-            grad_input,
-            grad_output
-        ):
-
-            gradients.append(
-                grad_output[0]
-            )
-
-
-        forward_handle = (
-            target_layer.register_forward_hook(
-                forward_hook
-            )
+        forward_handle = target_layer.register_forward_hook(
+            forward_hook
         )
 
-        backward_handle = (
-            target_layer.register_full_backward_hook(
-                backward_hook
-            )
+        backward_handle = target_layer.register_full_backward_hook(
+            backward_hook
         )
 
         try:
             model.zero_grad()
+
             with torch.enable_grad():
-                output = model(
-                    tensor
-                )
+                output = model(tensor)
 
                 predicted_class = output.argmax(
                     dim=1
@@ -726,31 +790,24 @@ def gradcam():
                 ]
 
                 score.backward()
+
         finally:
             forward_handle.remove()
             backward_handle.remove()
 
-
         activation = activations[0]
-
         gradient = gradients[0]
-
 
         weights = gradient.mean(
             dim=(2, 3),
             keepdim=True
         )
 
-
         cam = (
             weights * activation
         ).sum(dim=1)
 
-
-        cam = F.relu(
-            cam
-        )
-
+        cam = F.relu(cam)
 
         cam = (
             cam.squeeze()
@@ -758,37 +815,22 @@ def gradcam():
             .cpu()
         )
 
-
         cam -= cam.min()
 
-
         if cam.max() > 0:
-
             cam /= cam.max()
-
-
-        import numpy as np
-
 
         cam = cam.numpy()
 
-
         cam_image = Image.fromarray(
-            np.uint8(
-                cam * 255
-            )
+            np.uint8(cam * 255)
         )
-
 
         cam_image = cam_image.resize(
             image.size
         )
 
-
-        cam_array = np.array(
-            cam_image
-        )
-
+        cam_array = np.array(cam_image)
 
         original_array = np.array(
             image,
@@ -808,8 +850,7 @@ def gradcam():
 
         overlay = (
             0.55 * original_array
-            +
-            0.45 * heatmap
+            + 0.45 * heatmap
         )
 
         overlay = np.uint8(
@@ -825,10 +866,22 @@ def gradcam():
         )
 
         # Free intermediate array memory immediately
-        del activations, gradients, output, score, activation, gradient, cam, cam_array, original_array, heatmap, overlay
+        del (
+            activations,
+            gradients,
+            output,
+            score,
+            activation,
+            gradient,
+            cam,
+            cam_array,
+            original_array,
+            heatmap,
+            overlay
+        )
+
         import gc
         gc.collect()
-
 
         # =================================================
         # CREATE PER-SCREENING STORAGE
@@ -838,15 +891,11 @@ def gradcam():
             create_screening_folder()
         )
 
-
         # =================================================
         # SAVE ORIGINAL IMAGE
         # =================================================
 
-        original_filename = (
-            "original.jpg"
-        )
-
+        original_filename = "original.jpg"
 
         original_path = save_image(
             image,
@@ -854,22 +903,17 @@ def gradcam():
             original_filename
         )
 
-
         # =================================================
         # SAVE GRAD-CAM IMAGE
         # =================================================
 
-        gradcam_filename = (
-            "gradcam.jpg"
-        )
-
+        gradcam_filename = "gradcam.jpg"
 
         gradcam_path = save_image(
             overlay_image,
             screening_folder,
             gradcam_filename
         )
-
 
         # =================================================
         # DATABASE / URL PATHS
@@ -881,66 +925,46 @@ def gradcam():
             f"{original_filename}"
         )
 
-
         gradcam_relative_path = (
             f"uploads/screenings/"
             f"{folder_name}/"
             f"{gradcam_filename}"
         )
 
-
         # =================================================
         # RESPONSE
         # =================================================
 
         return jsonify({
-
             "success": True,
 
-            "original_image":
-                image_to_base64(
-                    image
-                ),
+            "original_image": image_to_base64(
+                image
+            ),
 
-            "gradcam_image":
-                image_to_base64(
-                    overlay_image
-                ),
+            "gradcam_image": image_to_base64(
+                overlay_image
+            ),
 
-            "image":
-                image_to_base64(
-                    overlay_image
-                ),
+            "image": image_to_base64(
+                overlay_image
+            ),
 
-            "predicted_class":
-                predicted_class,
+            "predicted_class": predicted_class,
 
-            "image_path":
-                image_relative_path,
+            "image_path": image_relative_path,
 
-            "gradcam_path":
-                gradcam_relative_path,
+            "gradcam_path": gradcam_relative_path,
 
-            "patient_id":
-                patient_id
-
+            "patient_id": patient_id
         })
 
-
     except Exception as e:
-
-        print(
-            "Grad-CAM error:",
-            e
-        )
+        print("Grad-CAM error:", e)
 
         return jsonify({
-
             "success": False,
-
-            "message":
-                str(e)
-
+            "message": str(e)
         }), 500
 
 
@@ -953,7 +977,6 @@ def gradcam():
     methods=["GET"]
 )
 def serve_upload(filename):
-
     return send_from_directory(
         UPLOAD_DIR,
         filename
@@ -966,29 +989,20 @@ def serve_upload(filename):
 
 @app.route("/patients", methods=["POST"])
 def create_patient():
-
     data = request.get_json()
 
     if not data:
-
         return jsonify({
-
             "success": False,
-
-            "message":
-                "Request body is required"
-
+            "message": "Request body is required"
         }), 400
-
 
     name = data.get(
         "name",
         ""
     ).strip()
 
-    age = data.get(
-        "age"
-    )
+    age = data.get("age")
 
     gender = data.get(
         "gender",
@@ -1000,23 +1014,14 @@ def create_patient():
         ""
     )
 
-
     if not name:
-
         return jsonify({
-
             "success": False,
-
-            "message":
-                "Patient name is required"
-
+            "message": "Patient name is required"
         }), 400
 
-
     try:
-
         conn = get_connection()
-
 
         last_patient = conn.execute(
             """
@@ -1027,37 +1032,24 @@ def create_patient():
             """
         ).fetchone()
 
-
         if last_patient:
-
             try:
-
                 last_number = int(
-                    last_patient[
-                        "patient_id"
-                    ].replace(
+                    last_patient["patient_id"].replace(
                         "PAT-",
                         ""
                     )
                 )
 
-                new_number = (
-                    last_number + 1
-                )
+                new_number = last_number + 1
 
-            except:
-
+            except Exception:
                 new_number = 1
 
         else:
-
             new_number = 1
 
-
-        patient_id = (
-            f"PAT-{new_number:04d}"
-        )
-
+        patient_id = f"PAT-{new_number:04d}"
 
         cursor = conn.execute(
             """
@@ -1080,9 +1072,7 @@ def create_patient():
             )
         )
 
-
         conn.commit()
-
 
         patient = conn.execute(
             """
@@ -1095,37 +1085,20 @@ def create_patient():
             )
         ).fetchone()
 
-
         conn.close()
 
-
         return jsonify({
-
             "success": True,
-
-            "message":
-                "Patient created successfully",
-
-            "patient":
-                dict(patient)
-
+            "message": "Patient created successfully",
+            "patient": dict(patient)
         }), 201
 
-
     except Exception as e:
-
-        print(
-            "Create patient error:",
-            e
-        )
+        print("Create patient error:", e)
 
         return jsonify({
-
             "success": False,
-
-            "message":
-                str(e)
-
+            "message": str(e)
         }), 500
 
 
@@ -1135,11 +1108,8 @@ def create_patient():
 
 @app.route("/patients", methods=["GET"])
 def get_patients():
-
     try:
-
         conn = get_connection()
-
 
         patients = conn.execute(
             """
@@ -1154,39 +1124,22 @@ def get_patients():
             """
         ).fetchall()
 
-
         conn.close()
 
-
         return jsonify({
-
             "success": True,
-
             "patients": [
-
                 dict(patient)
-
                 for patient in patients
-
             ]
-
         })
 
-
     except Exception as e:
-
-        print(
-            "Get patients error:",
-            e
-        )
+        print("Get patients error:", e)
 
         return jsonify({
-
             "success": False,
-
-            "message":
-                str(e)
-
+            "message": str(e)
         }), 500
 
 
@@ -1199,11 +1152,8 @@ def get_patients():
     methods=["GET"]
 )
 def get_patient(patient_id):
-
     try:
-
         conn = get_connection()
-
 
         patient = conn.execute(
             """
@@ -1216,20 +1166,13 @@ def get_patient(patient_id):
             )
         ).fetchone()
 
-
         if not patient:
-
             conn.close()
 
             return jsonify({
-
                 "success": False,
-
-                "message":
-                    "Patient not found"
-
+                "message": "Patient not found"
             }), 404
-
 
         screenings = conn.execute(
             """
@@ -1243,42 +1186,23 @@ def get_patient(patient_id):
             )
         ).fetchall()
 
-
         conn.close()
 
-
         return jsonify({
-
             "success": True,
-
-            "patient":
-                dict(patient),
-
+            "patient": dict(patient),
             "screenings": [
-
                 dict(screening)
-
                 for screening in screenings
-
             ]
-
         })
 
-
     except Exception as e:
-
-        print(
-            "Get patient error:",
-            e
-        )
+        print("Get patient error:", e)
 
         return jsonify({
-
             "success": False,
-
-            "message":
-                str(e)
-
+            "message": str(e)
         }), 500
 
 
@@ -1291,42 +1215,24 @@ def get_patient(patient_id):
     methods=["POST"]
 )
 def create_screening():
-
     data = request.get_json()
 
     if not data:
-
         return jsonify({
-
             "success": False,
-
-            "message":
-                "Request body is required"
-
+            "message": "Request body is required"
         }), 400
 
-
-    patient_id = data.get(
-        "patient_id"
-    )
-
+    patient_id = data.get("patient_id")
 
     if not patient_id:
-
         return jsonify({
-
             "success": False,
-
-            "message":
-                "patient_id is required"
-
+            "message": "patient_id is required"
         }), 400
 
-
     try:
-
         conn = get_connection()
-
 
         patient = conn.execute(
             """
@@ -1339,20 +1245,13 @@ def create_screening():
             )
         ).fetchone()
 
-
         if not patient:
-
             conn.close()
 
             return jsonify({
-
                 "success": False,
-
-                "message":
-                    "Patient not found"
-
+                "message": "Patient not found"
             }), 404
-
 
         cursor = conn.execute(
             """
@@ -1371,42 +1270,17 @@ def create_screening():
             """,
             (
                 patient_id,
-
-                data.get(
-                    "image_path"
-                ),
-
-                data.get(
-                    "grade"
-                ),
-
-                data.get(
-                    "diagnosis"
-                ),
-
-                data.get(
-                    "confidence"
-                ),
-
-                data.get(
-                    "referable_probability"
-                ),
-
-                data.get(
-                    "referable",
-                    0
-                ),
-
-                data.get(
-                    "gradcam_path"
-                )
-
+                data.get("image_path"),
+                data.get("grade"),
+                data.get("diagnosis"),
+                data.get("confidence"),
+                data.get("referable_probability"),
+                data.get("referable", 0),
+                data.get("gradcam_path")
             )
         )
 
-
         conn.commit()
-
 
         screening = conn.execute(
             """
@@ -1419,37 +1293,20 @@ def create_screening():
             )
         ).fetchone()
 
-
         conn.close()
 
-
         return jsonify({
-
             "success": True,
-
-            "message":
-                "Screening saved successfully",
-
-            "screening":
-                dict(screening)
-
+            "message": "Screening saved successfully",
+            "screening": dict(screening)
         }), 201
 
-
     except Exception as e:
-
-        print(
-            "Create screening error:",
-            e
-        )
+        print("Create screening error:", e)
 
         return jsonify({
-
             "success": False,
-
-            "message":
-                str(e)
-
+            "message": str(e)
         }), 500
 
 
@@ -1462,11 +1319,8 @@ def create_screening():
     methods=["GET"]
 )
 def get_screenings(patient_id):
-
     try:
-
         conn = get_connection()
-
 
         screenings = conn.execute(
             """
@@ -1480,39 +1334,22 @@ def get_screenings(patient_id):
             )
         ).fetchall()
 
-
         conn.close()
 
-
         return jsonify({
-
             "success": True,
-
             "screenings": [
-
                 dict(screening)
-
                 for screening in screenings
-
             ]
-
         })
 
-
     except Exception as e:
-
-        print(
-            "Get screenings error:",
-            e
-        )
+        print("Get screenings error:", e)
 
         return jsonify({
-
             "success": False,
-
-            "message":
-                str(e)
-
+            "message": str(e)
         }), 500
 
 
@@ -1525,11 +1362,8 @@ def get_screenings(patient_id):
     methods=["GET"]
 )
 def dashboard_stats():
-
     try:
-
         conn = get_connection()
-
 
         total_patients = conn.execute(
             """
@@ -1539,7 +1373,6 @@ def dashboard_stats():
             """
         ).fetchone()["count"]
 
-
         total_scans = conn.execute(
             """
             SELECT COUNT(*)
@@ -1548,7 +1381,6 @@ def dashboard_stats():
             """
         ).fetchone()["count"]
 
-
         total_referrals = conn.execute(
             """
             SELECT COUNT(*)
@@ -1556,7 +1388,6 @@ def dashboard_stats():
             WHERE referable = 1
             """
         ).fetchone()[0]
-
 
         recent_patients = conn.execute(
             """
@@ -1582,52 +1413,29 @@ def dashboard_stats():
             """
         ).fetchall()
 
-
         conn.close()
 
-
         return jsonify({
-
             "success": True,
 
             "stats": {
-
-                "total_patients":
-                    total_patients,
-
-                "total_screenings":
-                    total_scans,
-
-                "total_referrals":
-                    total_referrals
-
+                "total_patients": total_patients,
+                "total_screenings": total_scans,
+                "total_referrals": total_referrals
             },
 
             "recent_patients": [
-
                 dict(patient)
-
                 for patient in recent_patients
-
             ]
-
         })
 
-
     except Exception as e:
-
-        print(
-            "Dashboard stats error:",
-            e
-        )
+        print("Dashboard stats error:", e)
 
         return jsonify({
-
             "success": False,
-
-            "message":
-                str(e)
-
+            "message": str(e)
         }), 500
 
 
@@ -1640,11 +1448,8 @@ def dashboard_stats():
     methods=["GET"]
 )
 def get_screening(screening_id):
-
     try:
-
         conn = get_connection()
-
 
         screening = conn.execute(
             """
@@ -1667,46 +1472,25 @@ def get_screening(screening_id):
             )
         ).fetchone()
 
-
         conn.close()
 
-
         if not screening:
-
             return jsonify({
-
                 "success": False,
-
-                "message":
-                    "Screening not found"
-
+                "message": "Screening not found"
             }), 404
 
-
         return jsonify({
-
             "success": True,
-
-            "screening":
-                dict(screening)
-
+            "screening": dict(screening)
         })
 
-
     except Exception as e:
-
-        print(
-            "Get screening error:",
-            e
-        )
+        print("Get screening error:", e)
 
         return jsonify({
-
             "success": False,
-
-            "message":
-                "Unable to load screening"
-
+            "message": "Unable to load screening"
         }), 500
 
 
@@ -1719,11 +1503,8 @@ def get_screening(screening_id):
     methods=["GET"]
 )
 def get_all_screenings():
-
     try:
-
         conn = get_connection()
-
 
         screenings = conn.execute(
             """
@@ -1750,39 +1531,22 @@ def get_all_screenings():
             """
         ).fetchall()
 
-
         conn.close()
 
-
         return jsonify({
-
             "success": True,
-
             "screenings": [
-
                 dict(screening)
-
                 for screening in screenings
-
             ]
-
         })
 
-
     except Exception as e:
-
-        print(
-            "Get all screenings error:",
-            e
-        )
+        print("Get all screenings error:", e)
 
         return jsonify({
-
             "success": False,
-
-            "message":
-                "Unable to load screening reports"
-
+            "message": "Unable to load screening reports"
         }), 500
 
 
@@ -1795,11 +1559,8 @@ def get_all_screenings():
     methods=["GET"]
 )
 def analytics():
-
     try:
-
         conn = get_connection()
-
 
         total_patients = conn.execute(
             """
@@ -1808,14 +1569,12 @@ def analytics():
             """
         ).fetchone()[0]
 
-
         total_screenings = conn.execute(
             """
             SELECT COUNT(*)
             FROM screenings
             """
         ).fetchone()[0]
-
 
         referable_cases = conn.execute(
             """
@@ -1825,12 +1584,10 @@ def analytics():
             """
         ).fetchone()[0]
 
-
         non_referable_cases = (
-            total_screenings -
-            referable_cases
+            total_screenings
+            - referable_cases
         )
-
 
         average_confidence = conn.execute(
             """
@@ -1839,11 +1596,8 @@ def analytics():
             """
         ).fetchone()[0]
 
-
         if average_confidence is None:
-
             average_confidence = 0
-
 
         grade_rows = conn.execute(
             """
@@ -1856,26 +1610,19 @@ def analytics():
             """
         ).fetchall()
 
-
         grade_distribution = {
-
             "0": 0,
             "1": 0,
             "2": 0,
             "3": 0,
             "4": 0
-
         }
 
-
         for row in grade_rows:
-
             if row["grade"] is not None:
-
                 grade_distribution[
                     str(row["grade"])
                 ] = row["count"]
-
 
         monthly_rows = conn.execute(
             """
@@ -1897,21 +1644,13 @@ def analytics():
             """
         ).fetchall()
 
-
         monthly_activity = [
-
             {
-                "month":
-                    row["month"],
-
-                "count":
-                    row["count"]
+                "month": row["month"],
+                "count": row["count"]
             }
-
             for row in monthly_rows
-
         ]
-
 
         diagnosis_rows = conn.execute(
             """
@@ -1925,97 +1664,60 @@ def analytics():
             """
         ).fetchall()
 
-
         diagnosis_distribution = [
-
             {
-                "diagnosis":
-                    row["diagnosis"],
-
-                "count":
-                    row["count"]
+                "diagnosis": row["diagnosis"],
+                "count": row["count"]
             }
-
             for row in diagnosis_rows
-
         ]
 
-
         if total_screenings > 0:
-
             referable_percentage = (
-
-                referable_cases /
-                total_screenings
-
+                referable_cases
+                / total_screenings
             ) * 100
-
         else:
-
             referable_percentage = 0
-
 
         conn.close()
 
-
         return jsonify({
-
             "success": True,
 
             "analytics": {
+                "total_patients": total_patients,
 
-                "total_patients":
-                    total_patients,
+                "total_screenings": total_screenings,
 
-                "total_screenings":
-                    total_screenings,
+                "referable_cases": referable_cases,
 
-                "referable_cases":
-                    referable_cases,
+                "non_referable_cases": non_referable_cases,
 
-                "non_referable_cases":
-                    non_referable_cases,
+                "referable_percentage": round(
+                    referable_percentage,
+                    2
+                ),
 
-                "referable_percentage":
-                    round(
-                        referable_percentage,
-                        2
-                    ),
+                "average_confidence": round(
+                    average_confidence,
+                    4
+                ),
 
-                "average_confidence":
-                    round(
-                        average_confidence,
-                        4
-                    ),
+                "grade_distribution": grade_distribution,
 
-                "grade_distribution":
-                    grade_distribution,
+                "monthly_activity": monthly_activity,
 
-                "monthly_activity":
-                    monthly_activity,
-
-                "diagnosis_distribution":
-                    diagnosis_distribution
-
+                "diagnosis_distribution": diagnosis_distribution
             }
-
         })
 
-
     except Exception as e:
-
-        print(
-            "Analytics error:",
-            e
-        )
+        print("Analytics error:", e)
 
         return jsonify({
-
             "success": False,
-
-            "message":
-                "Unable to load analytics data"
-
+            "message": "Unable to load analytics data"
         }), 500
 
 
@@ -2024,23 +1726,16 @@ def analytics():
 # =========================================================
 
 if __name__ == "__main__":
-
     print("")
-
     print("========================================")
     print("        RETINAAI BACKEND SERVER")
     print("========================================")
     print("Server: http://127.0.0.1:5000")
     print("Database: SQLite")
     print("AI Model: EfficientNet-B0")
-    print(
-        "Image Storage:",
-        SCREENING_DIR
-    )
+    print("Image Storage:", SCREENING_DIR)
     print("========================================")
-
     print("")
-
 
     app.run(
         host="0.0.0.0",
