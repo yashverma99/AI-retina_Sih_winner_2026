@@ -2,6 +2,39 @@
 // RETINAAI — FRONTEND SCRIPT
 // =====================================================
 
+// Function to close the large validation popup
+function closeValidationPopup() {
+    document.getElementById('validationPopup').style.display = 'none';
+    // Reset the upload form so user can upload a new image
+    resetUpload();
+}
+
+// Function to reset the entire upload form
+function resetUpload() {
+    // Reset the image input
+    if (imageInput) {
+        imageInput.value = '';
+  run   }
+    
+    // Show upload content, hide preview
+    if (uploadContent) uploadContent.style.display = 'flex';
+    if (previewWrapper) previewWrapper.style.display = 'none';
+    
+    // Hide loading and result, show empty state
+    if (loading) loading.style.display = 'none';
+    if (emptyResult) emptyResult.style.display = 'block';
+    if (resultCard) resultCard.style.display = 'none';
+    
+    // Re-enable the analyse button
+    if (analyseButton) analyseButton.disabled = false;
+    if (typeof analyseEnhancedButton !== 'undefined' && analyseEnhancedButton) {
+        analyseEnhancedButton.disabled = false;
+    }
+    
+    // Reset any enhanced image file
+    enhancedImageFile = null;
+}
+
 
 // =====================================================
 // API CONFIGURATION
@@ -1186,6 +1219,12 @@ async function analyseImage() {
             !data.success
         ) {
 
+            // Check if this is a validation failure (non-fundus/random image)
+            if (data.validation_failed) {
+                // Show the large, prominent validation popup
+                document.getElementById('validationPopup').style.display = 'flex';
+            }
+            
             throw new Error(
                 data.error ||
                 data.message ||
@@ -3065,4 +3104,3 @@ renderHistory();
 console.log(
     "RetinaAI initialized successfully"
 );
-

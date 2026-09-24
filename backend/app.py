@@ -121,7 +121,7 @@ def validate_fundus_image(image):
 
         aspect_ratio = max(width, height) / min(width, height)
 
-        if aspect_ratio > 1.5:
+        if aspect_ratio > 1.3:  # Reduced from 1.5 to 1.3 - stricter aspect ratio check, fundus images are nearly square
             return (
                 False,
                 "Invalid image shape. "
@@ -228,7 +228,7 @@ def validate_fundus_image(image):
             center_mean - outside_mean
         )
 
-        if field_contrast < 8:
+        if field_contrast < 15:  # Increased from 8 to 15 - stricter check for the circular fundus field
             return (
                 False,
                 "A clear circular retinal field could not be detected."
@@ -297,7 +297,7 @@ def validate_fundus_image(image):
             + 2.0
         )
 
-        if warm_ratio < 0.62:
+        if warm_ratio < 0.68:  # Increased from 0.62 to 0.68 - stricter color check for fundus characteristics
             return (
                 False,
                 "The uploaded image does not appear to be "
@@ -312,7 +312,7 @@ def validate_fundus_image(image):
             green.std()
         )
 
-        if green_std < 12:
+        if green_std < 18:  # Increased from 12 to 18 - requires more detailed retinal structure in green channel
             return (
                 False,
                 "Insufficient retinal detail detected. "
@@ -343,7 +343,7 @@ def validate_fundus_image(image):
             + 2.0
         )
 
-        if center_warm_ratio < 0.60:
+        if center_warm_ratio < 0.65:  # Increased from 0.60 to 0.65 - stricter central region color check
             return (
                 False,
                 "The central region does not resemble "
@@ -376,29 +376,29 @@ def validate_fundus_image(image):
 
         score = 0
 
-        if 0.65 <= warm_ratio <= 1.8:
+        if 0.68 <= warm_ratio <= 1.8:  # Updated to match our new warm_ratio threshold
             score += 1
 
         if center_mean > 45:
             score += 1
 
-        if field_contrast > 8:
+        if field_contrast > 15:  # Updated to match our new field_contrast threshold
             score += 1
 
         if corner_mean < 190:
             score += 1
 
-        if green_std > 12:
+        if green_std > 18:  # Updated to match our new green_std threshold
             score += 1
 
-        if center_warm_ratio > 0.60:
+        if center_warm_ratio > 0.65:  # Updated to match our new center_warm_ratio threshold
             score += 1
 
         if mean_saturation > 15:
             score += 1
 
         # Require strong evidence before AI classification
-        if score < 5:
+        if score < 6:  # Increased from 5 to 6 to make validation stricter
             return (
                 False,
                 "The uploaded image does not appear to be "
@@ -2277,4 +2277,3 @@ if __name__ == "__main__":
         port=5000,
         debug=False
     )
-
