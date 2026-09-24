@@ -228,7 +228,7 @@ def validate_fundus_image(image):
             center_mean - outside_mean
         )
 
-        if field_contrast < 15:  # Increased from 8 to 15 - stricter check for the circular fundus field
+        if field_contrast < 25:  # Increased from 15 to 25 - much stricter: fundus must have clear bright circle on dark background
             return (
                 False,
                 "A clear circular retinal field could not be detected."
@@ -274,7 +274,8 @@ def validate_fundus_image(image):
             corners.mean()
         )
 
-        if corner_mean > 190:
+        # Make corner check MUCH stricter - fundus images ALWAYS have dark corners
+        if corner_mean > 120:  # Reduced from 190 to 120 - fundus corners are always very dark!
             return (
                 False,
                 "No typical retinal fundus field detected. "

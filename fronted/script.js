@@ -1219,8 +1219,8 @@ async function analyseImage() {
             !data.success
         ) {
 
-            // Check if this is a validation failure (non-fundus/random image)
-            if (data.validation_failed) {
+            // Show the large validation popup for ALL 422 errors (validation failures) OR if validation_failed is true
+            if (response.status === 422 || data.validation_failed) {
                 // Show the large, prominent validation popup
                 document.getElementById('validationPopup').style.display = 'flex';
             }
