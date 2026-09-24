@@ -96,6 +96,10 @@ def validate_fundus_image(image):
     """
 
     try:
+        # FORCED FAIL FOR TESTING - REMOVE THIS AFTER YOU CONFIRM POPUP WORKS!
+        # This will make ALL images fail validation temporarily so you can test the popup
+        return (False, "Test validation failure - all images blocked temporarily")
+        
         # -------------------------------------------------
         # Convert to RGB
         # -------------------------------------------------
@@ -298,7 +302,7 @@ def validate_fundus_image(image):
             + 2.0
         )
 
-        if warm_ratio < 0.68:  # Increased from 0.62 to 0.68 - stricter color check for fundus characteristics
+        if warm_ratio < 0.75:  # EXTREMELY STRICT - fundus images have high red channel (warm ratio > 0.75)
             return (
                 False,
                 "The uploaded image does not appear to be "
@@ -344,7 +348,7 @@ def validate_fundus_image(image):
             + 2.0
         )
 
-        if center_warm_ratio < 0.65:  # Increased from 0.60 to 0.65 - stricter central region color check
+        if center_warm_ratio < 0.72:  # EXTREMELY STRICT - central region must also be warm (red/orange like fundus)
             return (
                 False,
                 "The central region does not resemble "
@@ -882,11 +886,28 @@ def predict():
             )
         )
 
+        print(f"=== VALIDATION DEBUG ===")
+        print(f"is_fundus: {is_fundus}")
+        print(f"validation_message: {validation_message}")
+        print(f"========================")
+
         # IMPORTANT:
         # Non-fundus image NEVER reaches EfficientNet.
 
         if not is_fundus:
+            print(f"❌ VALIDATION FAILED - returning 422 error")
+            return jsonify({
+                "success": False,
+                "validation_failed": True,
+                "message": validation_message
+            }), 422
+        else:
+            print(f"✅ VALIDATION PASSED - processing image")
 
+        # ABSOLUTE GUARANTEE: If validation failed, we can never proceed to return success
+        # This is a final failsafe to prevent any fake images from generating reports
+        if not is_fundus:
+            print(f"❌ FINAL FAILSAFE TRIGGERED - validation failed, blocking all processing")
             return jsonify({
                 "success": False,
                 "validation_failed": True,

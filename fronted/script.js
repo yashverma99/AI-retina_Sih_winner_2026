@@ -1212,17 +1212,22 @@ async function analyseImage() {
             "Prediction response:",
             data
         );
+        console.log("Response status code:", response.status);
+        console.log("validation_failed flag:", data.validation_failed);
 
 
         if (
             !response.ok ||
             !data.success
         ) {
-
+            console.log("❌ API request failed - showing error handling");
             // Show the large validation popup for ALL 422 errors (validation failures) OR if validation_failed is true
             if (response.status === 422 || data.validation_failed) {
+                console.log("✅ Showing validation popup!");
                 // Show the large, prominent validation popup
                 document.getElementById('validationPopup').style.display = 'flex';
+            } else {
+                console.log("⚠️ Not showing validation popup - status code:", response.status, "validation_failed:", data.validation_failed);
             }
             
             throw new Error(
