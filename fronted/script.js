@@ -14,7 +14,7 @@ function resetUpload() {
     // Reset the image input
     if (imageInput) {
         imageInput.value = '';
-  run   }
+   }
     
     // Show upload content, hide preview
     if (uploadContent) uploadContent.style.display = 'flex';
