@@ -121,11 +121,11 @@ def validate_fundus_image(image):
 
         aspect_ratio = max(width, height) / min(width, height)
 
-        if aspect_ratio > 1.3:  # Reduced from 1.5 to 1.3 - stricter aspect ratio check, fundus images are nearly square
+        if aspect_ratio > 1.4:  # Balanced: strict enough to block obviously wrong images, flexible for real fundus photos
             return (
                 False,
                 "Invalid image shape. "
-                "Please upload a retinal fundus photograph."
+                "Please upload a correct retinal fundus image."
             )
 
         # -------------------------------------------------
@@ -228,10 +228,10 @@ def validate_fundus_image(image):
             center_mean - outside_mean
         )
 
-        if field_contrast < 25:  # Increased from 15 to 25 - much stricter: fundus must have clear bright circle on dark background
+        if field_contrast < 20:  # Balanced: still strict but works with real-world imaging conditions
             return (
                 False,
-                "A clear circular retinal field could not be detected."
+                "A clear circular retinal field could not be detected. Please upload a correct fundus image."
             )
 
         # -------------------------------------------------
@@ -275,11 +275,10 @@ def validate_fundus_image(image):
         )
 
         # Make corner check MUCH stricter - fundus images ALWAYS have dark corners
-        if corner_mean > 120:  # Reduced from 190 to 120 - fundus corners are always very dark!
+        if corner_mean > 150:  # Balanced: detects dark corners of fundus while accommodating real lighting
             return (
                 False,
-                "No typical retinal fundus field detected. "
-                "Please upload a fundus photograph."
+                "No typical retinal fundus field detected. Please upload a correct fundus image."
             )
 
         # -------------------------------------------------
@@ -298,11 +297,10 @@ def validate_fundus_image(image):
             + 2.0
         )
 
-        if warm_ratio < 0.75:  # EXTREMELY STRICT - fundus images have high red channel (warm ratio > 0.75)
+        if warm_ratio < 0.68:  # Balanced: detects fundus color characteristics while working with all cameras
             return (
                 False,
-                "The uploaded image does not appear to be "
-                "a retinal fundus photograph."
+                "The uploaded image does not appear to be a retinal fundus photograph. Please upload a correct fundus image."
             )
 
         # -------------------------------------------------
@@ -313,11 +311,10 @@ def validate_fundus_image(image):
             green.std()
         )
 
-        if green_std < 18:  # Increased from 12 to 18 - requires more detailed retinal structure in green channel
+        if green_std < 15:  # Balanced: detects proper retinal structure while accepting various image qualities
             return (
                 False,
-                "Insufficient retinal detail detected. "
-                "Please upload a clearer fundus image."
+                "Insufficient retinal detail detected. Please upload a clearer correct fundus image."
             )
 
         # -------------------------------------------------
@@ -344,11 +341,10 @@ def validate_fundus_image(image):
             + 2.0
         )
 
-        if center_warm_ratio < 0.72:  # EXTREMELY STRICT - central region must also be warm (red/orange like fundus)
+        if center_warm_ratio < 0.65:  # Balanced: works with all camera setups while maintaining fundus detection
             return (
                 False,
-                "The central region does not resemble "
-                "a retinal fundus field."
+                "The central region does not resemble a retinal fundus field. Please upload a correct fundus image."
             )
 
         # -------------------------------------------------
@@ -399,12 +395,10 @@ def validate_fundus_image(image):
             score += 1
 
         # Require strong evidence before AI classification
-        if score < 6:  # Increased from 5 to 6 to make validation stricter
+        if score < 5:  # Balanced: requires enough checks to pass but works for real fundus images
             return (
                 False,
-                "The uploaded image does not appear to be "
-                "a retinal fundus photograph. "
-                "Please upload a clear retinal image."
+                "The uploaded image does not appear to be a retinal fundus photograph. Please upload a correct fundus image."
             )
 
         return (
