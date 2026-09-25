@@ -2,37 +2,497 @@
 // RETINAAI — FRONTEND SCRIPT
 // =====================================================
 
-// Function to close the large validation popup
-function closeValidationPopup() {
-    document.getElementById('validationPopup').style.display = 'none';
-    // Reset the upload form so user can upload a new image
-    resetUpload();
+
+// =====================================================
+// VALIDATION POPUP
+// =====================================================
+
+function showValidationPopup() {
+
+    console.log("🚨 SHOWING VALIDATION POPUP");
+
+    let popup =
+        document.getElementById("validationPopup");
+
+    if (!popup) {
+
+        popup =
+            document.createElement("div");
+
+        popup.id =
+            "validationPopup";
+
+        popup.innerHTML = `
+            <div class="retina-validation-overlay">
+
+                <div class="retina-validation-box">
+
+                    <div class="retina-validation-icon">
+                        ⚠️
+                    </div>
+
+                    <h2>
+                        Invalid Image!
+                    </h2>
+
+                    <p>
+                        Please upload a correct retinal fundus image
+                        to proceed with the screening.
+                    </p>
+
+                    <button
+                        id="validationPopupButton"
+                        type="button"
+                    >
+                        Upload Correct Image
+                    </button>
+
+                </div>
+
+            </div>
+        `;
+
+        document.body.appendChild(popup);
+
+        const style =
+            document.createElement("style");
+
+        style.id =
+            "retina-validation-popup-style";
+
+        style.textContent = `
+
+            /* =========================================
+               VALIDATION POPUP — FULL SCREEN OVERLAY
+            ========================================= */
+
+            #validationPopup {
+                position: fixed !important;
+
+                top: 0 !important;
+                right: 0 !important;
+                bottom: 0 !important;
+                left: 0 !important;
+
+                width: 100vw !important;
+                height: 100vh !important;
+
+                margin: 0 !important;
+                padding: 0 !important;
+
+                display: flex !important;
+
+                align-items: center !important;
+                justify-content: center !important;
+
+                background: rgba(0, 0, 0, 0.88) !important;
+
+                z-index: 2147483647 !important;
+
+                box-sizing: border-box !important;
+
+                overflow: auto !important;
+            }
+
+
+            /* =========================================
+               INNER OVERLAY
+            ========================================= */
+
+            .retina-validation-overlay {
+
+                position: absolute;
+
+                top: 0;
+                right: 0;
+                bottom: 0;
+                left: 0;
+
+                width: 100%;
+                height: 100%;
+
+                display: flex;
+
+                align-items: center;
+                justify-content: center;
+
+                padding: 24px;
+
+                box-sizing: border-box;
+
+                backdrop-filter: blur(10px);
+
+                -webkit-backdrop-filter: blur(10px);
+
+            }
+
+
+            /* =========================================
+               POPUP BOX
+            ========================================= */
+
+            .retina-validation-box {
+
+                position: relative;
+
+                width: min(680px, 90vw);
+
+                max-width: 680px;
+
+                min-height: 300px;
+
+                background: #ffffff;
+
+                border-radius: 26px;
+
+                padding: 55px 60px;
+
+                box-sizing: border-box;
+
+                text-align: center;
+
+                box-shadow:
+                    0 30px 90px rgba(0, 0, 0, 0.40);
+
+                animation:
+                    retinaPopupIn
+                    0.30s
+                    ease-out;
+
+                margin: auto;
+
+            }
+
+
+            /* =========================================
+               WARNING ICON
+            ========================================= */
+
+            .retina-validation-icon {
+
+                font-size: 82px;
+
+                line-height: 1;
+
+                margin-bottom: 20px;
+
+            }
+
+
+            /* =========================================
+               TITLE
+            ========================================= */
+
+            .retina-validation-box h2 {
+
+                margin: 0 0 18px 0;
+
+                font-size: 40px;
+
+                line-height: 1.2;
+
+                font-weight: 800;
+
+                color: #dc2626;
+
+            }
+
+
+            /* =========================================
+               MESSAGE
+            ========================================= */
+
+            .retina-validation-box p {
+
+                margin: 0 auto 32px auto;
+
+                max-width: 540px;
+
+                font-size: 20px;
+
+                line-height: 1.6;
+
+                color: #374151;
+
+            }
+
+
+            /* =========================================
+               BUTTON
+            ========================================= */
+
+            .retina-validation-box button {
+
+                border: none;
+
+                outline: none;
+
+                background: #2563eb;
+
+                color: #ffffff;
+
+                padding: 16px 30px;
+
+                min-width: 220px;
+
+                border-radius: 12px;
+
+                font-size: 17px;
+
+                font-weight: 700;
+
+                cursor: pointer;
+
+                transition:
+                    transform 0.15s ease,
+                    background 0.15s ease,
+                    box-shadow 0.15s ease;
+
+            }
+
+
+            .retina-validation-box button:hover {
+
+                background: #1d4ed8;
+
+                transform: translateY(-2px);
+
+                box-shadow:
+                    0 8px 22px rgba(37, 99, 235, 0.30);
+
+            }
+
+
+            .retina-validation-box button:active {
+
+                transform: translateY(0);
+
+            }
+
+
+            /* =========================================
+               POPUP ANIMATION
+            ========================================= */
+
+            @keyframes retinaPopupIn {
+
+                from {
+
+                    opacity: 0;
+
+                    transform:
+                        scale(0.82)
+                        translateY(15px);
+
+                }
+
+                to {
+
+                    opacity: 1;
+
+                    transform:
+                        scale(1)
+                        translateY(0);
+
+                }
+
+            }
+
+
+            /* =========================================
+               MOBILE
+            ========================================= */
+
+            @media (max-width: 600px) {
+
+                .retina-validation-box {
+
+                    width: 92vw;
+
+                    padding: 40px 24px;
+
+                    border-radius: 20px;
+
+                }
+
+                .retina-validation-icon {
+
+                    font-size: 65px;
+
+                }
+
+                .retina-validation-box h2 {
+
+                    font-size: 30px;
+
+                }
+
+                .retina-validation-box p {
+
+                    font-size: 16px;
+
+                }
+
+                .retina-validation-box button {
+
+                    width: 100%;
+
+                    font-size: 16px;
+
+                }
+
+            }
+
+        `;
+
+        document.head.appendChild(style);
+
+
+        // =================================================
+        // POPUP BUTTON
+        // =================================================
+
+        const popupButton =
+            document.getElementById(
+                "validationPopupButton"
+            );
+
+        if (popupButton) {
+
+            popupButton.addEventListener(
+                "click",
+                function () {
+
+                    closeValidationPopup();
+
+                }
+            );
+
+        }
+
+    }
+
+
+    // =================================================
+    // SHOW POPUP
+    // =================================================
+
+    popup.style.display =
+        "flex";
+
+    document.body.style.overflow =
+        "hidden";
+
+    console.log(
+        "✅ Validation popup visible and centered"
+    );
+
 }
 
-// Function to reset the entire upload form
-function resetUpload() {
-    // Reset the image input
-    if (imageInput) {
-        imageInput.value = '';
-   }
-    
-    // Show upload content, hide preview
-    if (uploadContent) uploadContent.style.display = 'flex';
-    if (previewWrapper) previewWrapper.style.display = 'none';
-    
-    // Hide loading and result, show empty state
-    if (loading) loading.style.display = 'none';
-    if (emptyResult) emptyResult.style.display = 'block';
-    if (resultCard) resultCard.style.display = 'none';
-    
-    // Re-enable the analyse button
-    if (analyseButton) analyseButton.disabled = false;
-    if (typeof analyseEnhancedButton !== 'undefined' && analyseEnhancedButton) {
-        analyseEnhancedButton.disabled = false;
+
+// =====================================================
+// CLOSE VALIDATION POPUP
+// =====================================================
+
+function closeValidationPopup() {
+
+    const popup =
+        document.getElementById(
+            "validationPopup"
+        );
+
+    if (popup) {
+
+        popup.style.display =
+            "none";
+
     }
-    
-    // Reset any enhanced image file
-    enhancedImageFile = null;
+
+    document.body.style.overflow =
+        "";
+
+    resetUpload();
+
+}
+
+
+// =====================================================
+// RESET UPLOAD
+// =====================================================
+
+function resetUpload() {
+
+    if (imageInput) {
+
+        imageInput.value =
+            "";
+
+    }
+
+    if (uploadContent) {
+
+        uploadContent.style.display =
+            "flex";
+
+    }
+
+    if (previewWrapper) {
+
+        previewWrapper.style.display =
+            "none";
+
+    }
+
+    if (loading) {
+
+        loading.style.display =
+            "none";
+
+    }
+
+    if (emptyResult) {
+
+        emptyResult.style.display =
+            "flex";
+
+    }
+
+    if (resultCard) {
+
+        resultCard.style.display =
+            "none";
+
+    }
+
+    if (analyseButton) {
+
+        analyseButton.disabled =
+            false;
+
+    }
+
+    if (
+        typeof analyseEnhancedButton !==
+        "undefined" &&
+        analyseEnhancedButton
+    ) {
+
+        analyseEnhancedButton.disabled =
+            false;
+
+    }
+
+    enhancedImageFile =
+        null;
+
+    currentResult =
+        null;
+
+    screeningSaved =
+        false;
+
+    resetExplanation();
+
 }
 
 
@@ -46,36 +506,60 @@ const API_BASE_URL =
         ? "http://127.0.0.1:5000"
         : "https://retinaai-backend-5h1p.onrender.com";
 
+
 const API_URL =
     `${API_BASE_URL}/predict`;
+
 
 const GRADCAM_API_URL =
     `${API_BASE_URL}/gradcam`;
 
+
 const SCREENINGS_API_URL =
     `${API_BASE_URL}/screenings`;
 
-const REQUEST_TIMEOUT_MS = 120000;
 
-async function fetchWithTimeout(url, options = {}) {
+const REQUEST_TIMEOUT_MS =
+    120000;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(
-        () => controller.abort(),
-        REQUEST_TIMEOUT_MS
-    );
+
+// =====================================================
+// FETCH WITH TIMEOUT
+// =====================================================
+
+async function fetchWithTimeout(
+    url,
+    options = {}
+) {
+
+    const controller =
+        new AbortController();
+
+    const timeout =
+        setTimeout(
+            () => controller.abort(),
+            REQUEST_TIMEOUT_MS
+        );
 
     try {
+
         return await fetch(
             url,
             {
                 ...options,
-                signal: controller.signal
+                signal:
+                    controller.signal
             }
         );
-    } finally {
-        clearTimeout(timeout);
+
     }
+
+    finally {
+
+        clearTimeout(timeout);
+
+    }
+
 }
 
 
@@ -88,18 +572,22 @@ const urlParams =
         window.location.search
     );
 
+
 const currentPatientId =
     urlParams.get("patient");
+
 
 const patientContext =
     document.getElementById(
         "patientContext"
     );
 
+
 const patientContextName =
     document.getElementById(
         "patientContextName"
     );
+
 
 const patientContextId =
     document.getElementById(
@@ -116,155 +604,186 @@ const patientName =
         "patientName"
     );
 
+
 const patientId =
     document.getElementById(
         "patientId"
     );
+
 
 const imageInput =
     document.getElementById(
         "imageInput"
     );
 
+
 const browseButton =
     document.getElementById(
         "browseButton"
     );
+
 
 const changeImageButton =
     document.getElementById(
         "changeImageButton"
     );
 
+
 const dropZone =
     document.getElementById(
         "dropZone"
     );
+
 
 const uploadContent =
     document.getElementById(
         "uploadContent"
     );
 
+
 const previewWrapper =
     document.getElementById(
         "previewWrapper"
     );
+
 
 const preview =
     document.getElementById(
         "preview"
     );
 
+
 const analyseButton =
     document.getElementById(
         "analyseButton"
     );
+
 
 const loading =
     document.getElementById(
         "loading"
     );
 
+
 const emptyResult =
     document.getElementById(
         "emptyResult"
     );
+
 
 const resultCard =
     document.getElementById(
         "resultCard"
     );
 
+
 const resultPatient =
     document.getElementById(
         "resultPatient"
     );
+
 
 const resultPatientId =
     document.getElementById(
         "resultPatientId"
     );
 
+
 const resultGrade =
     document.getElementById(
         "resultGrade"
     );
+
 
 const resultDiagnosis =
     document.getElementById(
         "resultDiagnosis"
     );
 
+
 const resultConfidence =
     document.getElementById(
         "resultConfidence"
     );
+
 
 const resultRisk =
     document.getElementById(
         "resultRisk"
     );
 
+
 const resultDecision =
     document.getElementById(
         "resultDecision"
     );
+
 
 const diagnosisBanner =
     document.getElementById(
         "diagnosisBanner"
     );
 
+
 const confidenceBar =
     document.getElementById(
         "confidenceBar"
     );
+
 
 const riskBar =
     document.getElementById(
         "riskBar"
     );
 
+
 const downloadReport =
     document.getElementById(
         "downloadReport"
     );
+
 
 const newAnalysisButton =
     document.getElementById(
         "newAnalysisButton"
     );
 
+
 const historyList =
     document.getElementById(
         "historyList"
     );
+
 
 const clearHistoryButton =
     document.getElementById(
         "clearHistoryButton"
     );
 
+
 const enhanceButton =
     document.getElementById(
         "enhanceButton"
     );
+
 
 const comparisonSection =
     document.getElementById(
         "comparisonSection"
     );
 
+
 const comparisonOriginal =
     document.getElementById(
         "comparisonOriginal"
     );
 
+
 const enhancedPreview =
     document.getElementById(
         "enhancedPreview"
     );
+
 
 const analyseEnhancedButton =
     document.getElementById(
@@ -281,10 +800,12 @@ const explanationSection =
         "explanationSection"
     );
 
+
 const gradcamOriginal =
     document.getElementById(
         "gradcamOriginal"
     );
+
 
 const gradcamImage =
     document.getElementById(
@@ -296,11 +817,16 @@ const gradcamImage =
 // STATE
 // =====================================================
 
-let currentResult = null;
+let currentResult =
+    null;
 
-let enhancedImageFile = null;
 
-let screeningSaved = false;
+let enhancedImageFile =
+    null;
+
+
+let screeningSaved =
+    false;
 
 
 // =====================================================
@@ -347,7 +873,6 @@ async function loadPatientContext() {
 
     }
 
-
     try {
 
         const response =
@@ -355,10 +880,8 @@ async function loadPatientContext() {
                 `${API_BASE_URL}/patients/${encodeURIComponent(currentPatientId)}`
             );
 
-
         const data =
             await response.json();
-
 
         if (
             !response.ok ||
@@ -374,14 +897,8 @@ async function loadPatientContext() {
 
         }
 
-
         const patient =
             data.patient;
-
-
-        // -------------------------------------------------
-        // SHOW PATIENT BANNER
-        // -------------------------------------------------
 
         if (patientContext) {
 
@@ -390,14 +907,12 @@ async function loadPatientContext() {
 
         }
 
-
         if (patientContextName) {
 
             patientContextName.textContent =
                 patient.name;
 
         }
-
 
         if (patientContextId) {
 
@@ -406,11 +921,6 @@ async function loadPatientContext() {
 
         }
 
-
-        // -------------------------------------------------
-        // AUTO-FILL SCANNER PATIENT FIELDS
-        // -------------------------------------------------
-
         if (patientName) {
 
             patientName.value =
@@ -418,14 +928,12 @@ async function loadPatientContext() {
 
         }
 
-
         if (patientId) {
 
             patientId.value =
                 patient.patient_id;
 
         }
-
 
         console.log(
             "Patient loaded:",
@@ -556,7 +1064,6 @@ if (dropZone) {
 
             }
 
-
             if (
                 event.target === changeImageButton ||
                 event.target.closest(
@@ -567,7 +1074,6 @@ if (dropZone) {
                 return;
 
             }
-
 
             imageInput.click();
 
@@ -590,13 +1096,11 @@ if (imageInput) {
             const file =
                 imageInput.files[0];
 
-
             if (!file) {
 
                 return;
 
             }
-
 
             handleImage(file);
 
@@ -613,15 +1117,10 @@ if (imageInput) {
 function handleImage(file) {
 
     const validTypes = [
-
         "image/jpeg",
-
         "image/png",
-
         "image/jpg"
-
     ];
-
 
     if (
         !validTypes.includes(
@@ -633,19 +1132,15 @@ function handleImage(file) {
             "Please upload a JPG or PNG image."
         );
 
-
         imageInput.value =
             "";
-
 
         return;
 
     }
 
-
     const maxSize =
         15 * 1024 * 1024;
-
 
     if (
         file.size > maxSize
@@ -655,26 +1150,23 @@ function handleImage(file) {
             "Image is too large. Maximum size is 15 MB."
         );
 
-
         imageInput.value =
             "";
-
 
         return;
 
     }
 
-
     enhancedImageFile =
         null;
-
 
     screeningSaved =
         false;
 
+    currentResult =
+        null;
 
     resetExplanation();
-
 
     if (comparisonSection) {
 
@@ -683,16 +1175,13 @@ function handleImage(file) {
 
     }
 
-
     const imageURL =
         URL.createObjectURL(
             file
         );
 
-
     preview.src =
         imageURL;
-
 
     preview.onload =
         function () {
@@ -703,18 +1192,14 @@ function handleImage(file) {
 
         };
 
-
     uploadContent.style.display =
         "none";
-
 
     previewWrapper.style.display =
         "block";
 
-
     emptyResult.style.display =
         "flex";
-
 
     resultCard.style.display =
         "none";
@@ -759,7 +1244,6 @@ async function enhanceImage() {
     const file =
         imageInput.files[0];
 
-
     if (!file) {
 
         alert(
@@ -770,14 +1254,11 @@ async function enhanceImage() {
 
     }
 
-
     enhanceButton.disabled =
         true;
 
-
     enhanceButton.innerHTML =
         "Enhancing...";
-
 
     try {
 
@@ -786,14 +1267,11 @@ async function enhanceImage() {
                 file
             );
 
-
         const image =
             new Image();
 
-
         image.src =
             imageURL;
-
 
         await new Promise(
             function (resolve, reject) {
@@ -807,26 +1285,21 @@ async function enhanceImage() {
             }
         );
 
-
         const canvas =
             document.createElement(
                 "canvas"
             );
 
-
         canvas.width =
             image.naturalWidth;
 
-
         canvas.height =
             image.naturalHeight;
-
 
         const context =
             canvas.getContext(
                 "2d"
             );
-
 
         if (!context) {
 
@@ -836,10 +1309,8 @@ async function enhanceImage() {
 
         }
 
-
         context.filter =
             "contrast(1.18) saturate(1.12) brightness(1.04)";
-
 
         context.drawImage(
             image,
@@ -847,11 +1318,9 @@ async function enhanceImage() {
             0
         );
 
-
         URL.revokeObjectURL(
             imageURL
         );
-
 
         const enhancedBlob =
             await new Promise(
@@ -866,7 +1335,6 @@ async function enhanceImage() {
                 }
             );
 
-
         if (!enhancedBlob) {
 
             throw new Error(
@@ -874,7 +1342,6 @@ async function enhanceImage() {
             );
 
         }
-
 
         enhancedImageFile =
             new File(
@@ -890,22 +1357,18 @@ async function enhanceImage() {
                 }
             );
 
-
         const originalURL =
             URL.createObjectURL(
                 file
             );
-
 
         const enhancedURL =
             URL.createObjectURL(
                 enhancedImageFile
             );
 
-
         comparisonOriginal.src =
             originalURL;
-
 
         comparisonOriginal.onload =
             function () {
@@ -916,14 +1379,11 @@ async function enhanceImage() {
 
             };
 
-
         enhancedPreview.src =
             enhancedURL;
 
-
         comparisonSection.style.display =
             "block";
-
 
         comparisonSection.scrollIntoView(
             {
@@ -941,7 +1401,6 @@ async function enhanceImage() {
             error
         );
 
-
         alert(
             "Could not enhance this image. Please try another image."
         );
@@ -952,7 +1411,6 @@ async function enhanceImage() {
 
         enhanceButton.disabled =
             false;
-
 
         enhanceButton.innerHTML =
             "<span>✦</span> Enhance Image";
@@ -974,14 +1432,12 @@ if (dropZone) {
 
             event.preventDefault();
 
-
             dropZone.classList.add(
                 "dragover"
             );
 
         }
     );
-
 
     dropZone.addEventListener(
         "dragleave",
@@ -994,22 +1450,18 @@ if (dropZone) {
         }
     );
 
-
     dropZone.addEventListener(
         "drop",
         function (event) {
 
             event.preventDefault();
 
-
             dropZone.classList.remove(
                 "dragover"
             );
 
-
             const file =
                 event.dataTransfer.files[0];
-
 
             if (!file) {
 
@@ -1017,17 +1469,14 @@ if (dropZone) {
 
             }
 
-
             try {
 
                 const dataTransfer =
                     new DataTransfer();
 
-
                 dataTransfer.items.add(
                     file
                 );
-
 
                 imageInput.files =
                     dataTransfer.files;
@@ -1042,7 +1491,6 @@ if (dropZone) {
                 );
 
             }
-
 
             handleImage(file);
 
@@ -1076,7 +1524,6 @@ async function analyseImage() {
         "===================================="
     );
 
-
     console.log(
         "Analyse started"
     );
@@ -1088,7 +1535,6 @@ async function analyseImage() {
 
     const name =
         patientName.value.trim();
-
 
     const id =
         patientId.value.trim();
@@ -1104,7 +1550,7 @@ async function analyseImage() {
 
 
     // -------------------------------------------------
-    // VALIDATION
+    // PATIENT VALIDATION
     // -------------------------------------------------
 
     if (!name) {
@@ -1113,21 +1559,22 @@ async function analyseImage() {
             "Please enter patient name."
         );
 
-
         patientName.focus();
-
 
         return;
 
     }
 
 
+    // -------------------------------------------------
+    // IMAGE VALIDATION
+    // -------------------------------------------------
+
     if (!file) {
 
         alert(
             "Please upload a fundus image."
         );
-
 
         return;
 
@@ -1141,7 +1588,6 @@ async function analyseImage() {
     analyseButton.disabled =
         true;
 
-
     if (analyseEnhancedButton) {
 
         analyseEnhancedButton.disabled =
@@ -1149,33 +1595,27 @@ async function analyseImage() {
 
     }
 
-
     loading.style.display =
         "flex";
-
 
     emptyResult.style.display =
         "none";
 
-
     resultCard.style.display =
         "none";
 
-
     resetExplanation();
-
 
     screeningSaved =
         false;
 
 
     // -------------------------------------------------
-    // PREDICTION FORM
+    // FORM DATA
     // -------------------------------------------------
 
     const formData =
         new FormData();
-
 
     formData.append(
         "image",
@@ -1193,7 +1633,6 @@ async function analyseImage() {
             "Sending image to prediction API..."
         );
 
-
         const response =
             await fetchWithTimeout(
                 API_URL,
@@ -1204,32 +1643,148 @@ async function analyseImage() {
             );
 
 
-        const data =
-            await response.json();
+        let data = {};
+
+
+        try {
+
+            data =
+                await response.json();
+
+        }
+
+        catch (jsonError) {
+
+            console.error(
+                "Invalid JSON response:",
+                jsonError
+            );
+
+            throw new Error(
+                "Server returned an invalid response."
+            );
+
+        }
 
 
         console.log(
             "Prediction response:",
             data
         );
-        console.log("Response status code:", response.status);
-        console.log("validation_failed flag:", data.validation_failed);
 
+        console.log(
+            "Response status:",
+            response.status
+        );
+
+        console.log(
+            "validation_failed:",
+            data.validation_failed
+        );
+
+
+        // =================================================
+        // HARD INVALID FUNDUS IMAGE GATE
+        // =================================================
+
+        if (
+            response.status === 422 &&
+            data.validation_failed === true
+        ) {
+
+            console.log(
+                "🚨 NON-FUNDUS / INVALID IMAGE DETECTED"
+            );
+
+
+            // -------------------------------------------------
+            // STOP LOADING
+            // -------------------------------------------------
+
+            loading.style.display =
+                "none";
+
+
+            // -------------------------------------------------
+            // HIDE RESULT
+            // -------------------------------------------------
+
+            resultCard.style.display =
+                "none";
+
+
+            // -------------------------------------------------
+            // SHOW EMPTY STATE
+            // -------------------------------------------------
+
+            emptyResult.style.display =
+                "flex";
+
+
+            // -------------------------------------------------
+            // RE-ENABLE BUTTONS
+            // -------------------------------------------------
+
+            analyseButton.disabled =
+                false;
+
+            if (analyseEnhancedButton) {
+
+                analyseEnhancedButton.disabled =
+                    false;
+
+            }
+
+
+            // -------------------------------------------------
+            // CLEAR RESULT
+            // -------------------------------------------------
+
+            currentResult =
+                null;
+
+            screeningSaved =
+                false;
+
+
+            // -------------------------------------------------
+            // CLEAR GRAD-CAM
+            // -------------------------------------------------
+
+            resetExplanation();
+
+
+            // -------------------------------------------------
+            // IMPORTANT
+            //
+            // DO NOT:
+            // ❌ display diagnosis
+            // ❌ generate Grad-CAM
+            // ❌ save history
+            // ❌ save database
+            // -------------------------------------------------
+
+            showValidationPopup();
+
+            return;
+
+        }
+
+
+        // =================================================
+        // OTHER API ERROR
+        // =================================================
 
         if (
             !response.ok ||
             !data.success
         ) {
-            console.log("❌ API request failed - showing error handling");
-            // Show the large validation popup for ALL 422 errors (validation failures) OR if validation_failed is true
-            if (response.status === 422 || data.validation_failed) {
-                console.log("✅ Showing validation popup!");
-                // Show the large, prominent validation popup
-                document.getElementById('validationPopup').style.display = 'flex';
-            } else {
-                console.log("⚠️ Not showing validation popup - status code:", response.status, "validation_failed:", data.validation_failed);
-            }
-            
+
+            console.error(
+                "Prediction API error:",
+                data
+            );
+
             throw new Error(
                 data.error ||
                 data.message ||
@@ -1282,10 +1837,6 @@ async function analyseImage() {
                 new Date()
                     .toLocaleTimeString(),
 
-            // -------------------------------------------------
-            // PERSISTENCE PATHS
-            // -------------------------------------------------
-
             imagePath:
                 "",
 
@@ -1314,7 +1865,7 @@ async function analyseImage() {
 
 
         // =================================================
-        // STEP 2 — GRAD-CAM + PERSISTENCE
+        // STEP 2 — GRAD-CAM
         // =================================================
 
         console.log(
@@ -1331,10 +1882,6 @@ async function analyseImage() {
             file
         );
 
-
-        // -------------------------------------------------
-        // SEND PATIENT ID
-        // -------------------------------------------------
 
         if (
             currentPatientId
@@ -1360,6 +1907,7 @@ async function analyseImage() {
 
 
         try {
+
             const gradcamResponse =
                 await fetchWithTimeout(
                     GRADCAM_API_URL,
@@ -1369,16 +1917,46 @@ async function analyseImage() {
                     }
                 );
 
-            if (gradcamResponse.ok) {
+
+            // -------------------------------------------------
+            // INVALID IMAGE FROM GRAD-CAM
+            // -------------------------------------------------
+
+            if (
+                gradcamResponse.status === 422
+            ) {
+
+                console.warn(
+                    "Grad-CAM rejected image validation."
+                );
+
+                hideGradCAM();
+
+            }
+
+
+            // -------------------------------------------------
+            // GRAD-CAM SUCCESS
+            // -------------------------------------------------
+
+            else if (
+                gradcamResponse.ok
+            ) {
+
                 const gradcamData =
                     await gradcamResponse.json();
+
 
                 console.log(
                     "Grad-CAM response:",
                     gradcamData
                 );
 
-                if (gradcamData.success) {
+
+                if (
+                    gradcamData.success
+                ) {
+
                     currentResult.imagePath =
                         gradcamData.image_path ||
                         "";
@@ -1391,37 +1969,54 @@ async function analyseImage() {
                         gradcamData
                     );
 
-                    console.log(
-                        "✅ Images persisted:",
-                        currentResult.imagePath,
-                        currentResult.gradcamPath
-                    );
-                } else {
+                }
+
+                else {
+
                     console.warn(
-                        "Grad-CAM generation failed:",
+                        "Grad-CAM failed:",
                         gradcamData.error ||
                         gradcamData.message
                     );
+
                     hideGradCAM();
+
                 }
-            } else {
+
+            }
+
+
+            // -------------------------------------------------
+            // GRAD-CAM HTTP ERROR
+            // -------------------------------------------------
+
+            else {
+
                 console.warn(
-                    "Grad-CAM request returned non-OK status:",
+                    "Grad-CAM HTTP error:",
                     gradcamResponse.status
                 );
+
                 hideGradCAM();
+
             }
-        } catch (gradcamError) {
+
+        }
+
+        catch (gradcamError) {
+
             console.warn(
-                "Grad-CAM generation skipped or timed out:",
+                "Grad-CAM skipped:",
                 gradcamError
             );
+
             hideGradCAM();
+
         }
 
 
         // =================================================
-        // UPDATE LOCAL HISTORY WITH PATHS
+        // UPDATE HISTORY
         // =================================================
 
         updateLatestHistoryResult(
@@ -1430,18 +2025,24 @@ async function analyseImage() {
 
 
         // =================================================
-        // STEP 3 — SAVE TO DATABASE
+        // STEP 3 — DATABASE
         // =================================================
 
         try {
+
             await saveScreeningToDatabase(
                 currentResult
             );
-        } catch (saveError) {
+
+        }
+
+        catch (saveError) {
+
             console.warn(
                 "Screening persistence skipped:",
                 saveError
             );
+
         }
 
 
@@ -1452,10 +2053,8 @@ async function analyseImage() {
         loading.style.display =
             "none";
 
-
         analyseButton.disabled =
             false;
-
 
         if (analyseEnhancedButton) {
 
@@ -1464,10 +2063,8 @@ async function analyseImage() {
 
         }
 
-
         resultCard.style.display =
             "block";
-
 
         resultCard.scrollIntoView(
             {
@@ -1481,12 +2078,12 @@ async function analyseImage() {
             "Analysis completed successfully"
         );
 
-
         console.log(
             "===================================="
         );
 
     }
+
 
     catch (error) {
 
@@ -1516,13 +2113,32 @@ async function analyseImage() {
             "flex";
 
 
-        alert(
-            "Could not complete RetinaAI analysis.\n\n" +
-            error.message +
-            "\n\n" +
-            "Make sure the backend is running:\n" +
-            "python backend/app.py"
-        );
+        // -------------------------------------------------
+        // DON'T SHOW GENERIC ALERT IF POPUP IS VISIBLE
+        // -------------------------------------------------
+
+        const popup =
+            document.getElementById(
+                "validationPopup"
+            );
+
+
+        const popupVisible =
+            popup &&
+            popup.style.display !==
+            "none";
+
+
+        if (!popupVisible) {
+
+            alert(
+                "Could not complete RetinaAI analysis.\n\n" +
+                error.message +
+                "\n\n" +
+                "Make sure the backend is running."
+            );
+
+        }
 
     }
 
@@ -1537,21 +2153,17 @@ async function saveScreeningToDatabase(
     result
 ) {
 
-    // -------------------------------------------------
-    // ONLY SAVE WHEN PATIENT EXISTS
-    // -------------------------------------------------
-
     if (
         !currentPatientId &&
-        (!result.patientId ||
-            result.patientId === "N/A")
+        (
+            !result.patientId ||
+            result.patientId === "N/A"
+        )
     ) {
 
         console.log(
-            "No database patient selected. " +
-            "Skipping database save."
+            "No database patient selected. Skipping database save."
         );
-
 
         return;
 
@@ -1563,7 +2175,6 @@ async function saveScreeningToDatabase(
         console.log(
             "Screening already saved."
         );
-
 
         return;
 
@@ -1588,45 +2199,38 @@ async function saveScreeningToDatabase(
                             "application/json"
                     },
 
-                    body: JSON.stringify({
+                    body:
+                        JSON.stringify({
 
-                        patient_id:
-                            databasePatientId,
+                            patient_id:
+                                databasePatientId,
 
-                        // -------------------------------------------------
-                        // PERSISTENT IMAGE PATH
-                        // -------------------------------------------------
+                            image_path:
+                                result.imagePath ||
+                                "",
 
-                        image_path:
-                            result.imagePath ||
-                            "",
+                            grade:
+                                result.grade,
 
-                        grade:
-                            result.grade,
+                            diagnosis:
+                                result.diagnosis,
 
-                        diagnosis:
-                            result.diagnosis,
+                            confidence:
+                                result.confidence,
 
-                        confidence:
-                            result.confidence,
+                            referable_probability:
+                                result.referableProbability,
 
-                        referable_probability:
-                            result.referableProbability,
+                            referable:
+                                result.referable
+                                    ? 1
+                                    : 0,
 
-                        referable:
-                            result.referable
-                                ? 1
-                                : 0,
+                            gradcam_path:
+                                result.gradcamPath ||
+                                ""
 
-                        // -------------------------------------------------
-                        // PERSISTENT GRAD-CAM PATH
-                        // -------------------------------------------------
-
-                        gradcam_path:
-                            result.gradcamPath ||
-                            ""
-
-                    })
+                        })
 
                 }
             );
@@ -1647,7 +2251,6 @@ async function saveScreeningToDatabase(
                 data.error
             );
 
-
             return;
 
         }
@@ -1656,10 +2259,6 @@ async function saveScreeningToDatabase(
         screeningSaved =
             true;
 
-
-        // -------------------------------------------------
-        // STORE SCREENING ID
-        // -------------------------------------------------
 
         if (
             data.screening &&
@@ -1676,31 +2275,8 @@ async function saveScreeningToDatabase(
             "✅ Screening saved to database."
         );
 
-
-        console.log(
-            "Screening ID:",
-            data.screening
-                ? data.screening.id
-                : "N/A"
-        );
-
-
-        console.log(
-            "Image path:",
-            data.screening
-                ? data.screening.image_path
-                : result.imagePath
-        );
-
-
-        console.log(
-            "Grad-CAM path:",
-            data.screening
-                ? data.screening.gradcam_path
-                : result.gradcamPath
-        );
-
     }
+
 
     catch (error) {
 
@@ -1715,7 +2291,7 @@ async function saveScreeningToDatabase(
 
 
 // =====================================================
-// UPDATE LATEST LOCAL HISTORY RESULT
+// UPDATE LATEST HISTORY
 // =====================================================
 
 function updateLatestHistoryResult(
@@ -1738,7 +2314,6 @@ function updateLatestHistoryResult(
         }
 
 
-        // The latest analysis is the first item.
         history[0] = {
             ...history[0],
             ...result
@@ -1759,6 +2334,7 @@ function updateLatestHistoryResult(
         renderHistory();
 
     }
+
 
     catch (error) {
 
@@ -1807,10 +2383,6 @@ function displayResult(
         "%";
 
 
-    // -------------------------------------------------
-    // PROGRESS BARS
-    // -------------------------------------------------
-
     confidenceBar.style.width =
         "0%";
 
@@ -1840,10 +2412,6 @@ function displayResult(
     );
 
 
-    // -------------------------------------------------
-    // REFERABLE
-    // -------------------------------------------------
-
     if (result.referable) {
 
         resultDecision.textContent =
@@ -1866,6 +2434,7 @@ function displayResult(
             "#fca5a5";
 
     }
+
 
     else {
 
@@ -1910,9 +2479,7 @@ function displayGradCAM(
             "Grad-CAM images missing."
         );
 
-
         hideGradCAM();
-
 
         return;
 
@@ -2011,7 +2578,6 @@ function getHistory() {
             error
         );
 
-
         return [];
 
     }
@@ -2084,7 +2650,6 @@ function renderHistory() {
             </div>
         `;
 
-
         return;
 
     }
@@ -2114,13 +2679,11 @@ function renderHistory() {
 
                     </div>
 
-
                     <div class="history-grade">
 
                         Grade ${item.grade}
 
                     </div>
-
 
                     <div class="history-diagnosis">
 
@@ -2130,14 +2693,12 @@ function renderHistory() {
 
                     </div>
 
-
                     <div class="history-confidence">
 
                         ${item.confidence}%
                         confidence
 
                     </div>
-
 
                     <div class="history-time">
 
@@ -2224,10 +2785,6 @@ if (newAnalysisButton) {
         "click",
         function () {
 
-            // -------------------------------------------------
-            // PATIENT
-            // -------------------------------------------------
-
             if (!currentPatientId) {
 
                 patientName.value =
@@ -2238,10 +2795,6 @@ if (newAnalysisButton) {
 
             }
 
-
-            // -------------------------------------------------
-            // IMAGE
-            // -------------------------------------------------
 
             imageInput.value =
                 "";
@@ -2255,9 +2808,9 @@ if (newAnalysisButton) {
                 false;
 
 
-            // -------------------------------------------------
-            // COMPARISON
-            // -------------------------------------------------
+            currentResult =
+                null;
+
 
             if (comparisonSection) {
 
@@ -2283,10 +2836,6 @@ if (newAnalysisButton) {
             }
 
 
-            // -------------------------------------------------
-            // PREVIEW
-            // -------------------------------------------------
-
             preview.src =
                 "";
 
@@ -2298,10 +2847,6 @@ if (newAnalysisButton) {
             previewWrapper.style.display =
                 "none";
 
-
-            // -------------------------------------------------
-            // RESULT
-            // -------------------------------------------------
 
             resultCard.style.display =
                 "none";
@@ -2319,24 +2864,8 @@ if (newAnalysisButton) {
                 "0%";
 
 
-            // -------------------------------------------------
-            // GRAD-CAM
-            // -------------------------------------------------
-
             resetExplanation();
 
-
-            // -------------------------------------------------
-            // STATE
-            // -------------------------------------------------
-
-            currentResult =
-                null;
-
-
-            // -------------------------------------------------
-            // SCROLL
-            // -------------------------------------------------
 
             window.scrollTo(
                 {
@@ -2377,7 +2906,6 @@ function generatePDF() {
             "Please analyse an image first."
         );
 
-
         return;
 
     }
@@ -2389,7 +2917,6 @@ function generatePDF() {
             "PDF library is not loaded.\n" +
             "Please check your internet connection."
         );
-
 
         return;
 
@@ -2407,7 +2934,7 @@ function generatePDF() {
 
 
     // =================================================
-    // PAGE 1 — HEADER
+    // PAGE 1 HEADER
     // =================================================
 
     doc.setFillColor(
@@ -2680,10 +3207,6 @@ function generatePDF() {
         236
     );
 
-
-    // =================================================
-    // IMAGES
-    // =================================================
 
     const originalImage =
         gradcamOriginal &&
@@ -3035,7 +3558,7 @@ function generatePDF() {
 
 
     // =================================================
-    // SAVE PDF
+    // SAVE
     // =================================================
 
     const safeName =
@@ -3105,6 +3628,10 @@ function escapeHTML(
 
 renderHistory();
 
+
+// =====================================================
+// FINAL INITIALIZATION
+// =====================================================
 
 console.log(
     "RetinaAI initialized successfully"

@@ -1,4 +1,3 @@
-
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 
@@ -30,7 +29,6 @@ from backend.auth import hash_password, verify_password, create_admin
 app = Flask(__name__)
 CORS(app)
 
-# Limit uploads to 16MB
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 
 
@@ -82,63 +80,114 @@ transform = transforms.Compose([
 # =========================================================
 
 def validate_fundus_image(image):
+
     """
-    Lightweight fundus-image screening gate.
+    STRICT FUNDUS IMAGE VALIDATION
 
-    Purpose:
-    Reject obvious non-fundus/random images before they reach
-    the diabetic-retinopathy classification model.
+    This validation happens BEFORE EfficientNet inference.
 
-    IMPORTANT:
-    This is NOT a medical-grade fundus classifier.
-    A dedicated fundus-vs-non-fundus ML classifier would provide
-    stronger protection.
+    Flow:
+
+        uploaded image
+              |
+              v
+        image validation
+              |
+        +-----+------+
+        |            |
+      FAIL          PASS
+        |            |
+        v            v
+      422       EfficientNet
+                   |
+                   v
+                Grade
+
+    This is a defensive fundus-likeness gate.
+    It is NOT a medical-grade fundus classifier.
     """
 
     try:
-        # -------------------------------------------------
-        # Convert to RGB
-        # -------------------------------------------------
+
+        # =================================================
+        # BASIC IMAGE CHECK
+        # =================================================
+
+        if image is None:
+
+            return {
+                "valid": False,
+                "confidence": 0.0,
+                "message":
+                    "No image was provided. "
+                    "Please upload a retinal fundus image."
+            }
 
         image = image.convert("RGB")
 
         width, height = image.size
 
-        # -------------------------------------------------
-        # 1. BASIC RESOLUTION
-        # -------------------------------------------------
+        # =================================================
+        # MINIMUM RESOLUTION
+        # =================================================
 
         if width < 224 or height < 224:
-            return (
-                False,
-                "Image resolution is too low. "
-                "Please upload a clear retinal fundus image."
-            )
 
-        # -------------------------------------------------
-        # 2. EXTREME ASPECT RATIO
-        # -------------------------------------------------
+            return {
+                "valid": False,
+                "confidence": 0.0,
+                "message":
+                    "Image resolution is too low. "
+                    "Please upload a clear retinal fundus image."
+            }
 
-        aspect_ratio = max(width, height) / min(width, height)
+        # =================================================
+        # ASPECT RATIO
+        # =================================================
 
-        if aspect_ratio > 1.4:  # Balanced: strict enough to block obviously wrong images, flexible for real fundus photos
-            return (
-                False,
-                "Invalid image shape. "
-                "Please upload a correct retinal fundus image."
-            )
+        aspect_ratio = (
+            max(width, height)
+            /
+            min(width, height)
+        )
 
-        # -------------------------------------------------
-        # 3. RESIZE FOR ANALYSIS
-        # -------------------------------------------------
+        if aspect_ratio > 1.40:
 
-        small = image.copy()
-        small.thumbnail((320, 320))
+            return {
+                "valid": False,
+                "confidence": 0.0,
+                "message":
+                    "Invalid image shape. "
+                    "Please upload a correct retinal fundus image."
+            }
+
+        # =================================================
+        # ANALYSIS IMAGE
+        # =================================================
+
+        analysis_image = image.copy()
+
+        analysis_image.thumbnail(
+            (512, 512)
+        )
 
         arr = np.asarray(
-            small,
+            analysis_image,
             dtype=np.float32
         )
+
+        if (
+            arr.ndim != 3
+            or arr.shape[2] != 3
+        ):
+
+            return {
+                "valid": False,
+                "confidence": 0.0,
+                "message":
+                    "Unsupported image format. "
+                    "Please upload a retinal fundus image."
+            }
 
         red = arr[:, :, 0]
         green = arr[:, :, 1]
@@ -146,127 +195,190 @@ def validate_fundus_image(image):
 
         gray = (
             0.299 * red
-            + 0.587 * green
-            + 0.114 * blue
+            +
+            0.587 * green
+            +
+            0.114 * blue
         )
 
         h, w = gray.shape
 
-        # -------------------------------------------------
-        # 4. BASIC BRIGHTNESS
-        # -------------------------------------------------
+        # =================================================
+        # GLOBAL IMAGE QUALITY
+        # =================================================
 
-        mean_brightness = float(gray.mean())
-        brightness_std = float(gray.std())
+        mean_brightness = float(
+            gray.mean()
+        )
 
-        if mean_brightness < 30:
-            return (
-                False,
-                "Image is too dark. "
-                "Please upload a properly illuminated retinal fundus image."
-            )
+        brightness_std = float(
+            gray.std()
+        )
 
-        if mean_brightness > 240:
-            return (
-                False,
-                "Image is overexposed. "
-                "Please upload a retinal fundus image."
-            )
+        if brightness_std < 10:
 
-        # -------------------------------------------------
-        # 5. CENTRAL CIRCULAR FUNDUS FIELD
-        # -------------------------------------------------
+            return {
+                "valid": False,
+                "confidence": 0.0,
+                "message":
+                    "The uploaded image appears blank "
+                    "or lacks sufficient visual detail."
+            }
+
+        if mean_brightness < 18:
+
+            return {
+                "valid": False,
+                "confidence": 0.0,
+                "message":
+                    "Image is too dark. "
+                    "Please upload a properly illuminated "
+                    "retinal fundus image."
+            }
+
+        if mean_brightness > 248:
+
+            return {
+                "valid": False,
+                "confidence": 0.0,
+                "message":
+                    "Image is overexposed. "
+                    "Please upload a clear retinal fundus image."
+            }
+
+        # =================================================
+        # CENTER OF IMAGE
+        # =================================================
 
         center_x = w / 2.0
         center_y = h / 2.0
-
-        radius = min(h, w) * 0.43
 
         yy, xx = np.ogrid[:h, :w]
 
         distance = np.sqrt(
             (xx - center_x) ** 2
-            + (yy - center_y) ** 2
+            +
+            (yy - center_y) ** 2
         )
 
-        center_mask = distance <= radius
-        outside_mask = ~center_mask
+        min_dim = min(h, w)
 
-        center_pixels = gray[center_mask]
-        outside_pixels = gray[outside_mask]
+        # Main retinal field
+        main_radius = min_dim * 0.42
 
-        if len(center_pixels) == 0:
-            return (
-                False,
-                "Unable to detect a retinal field."
-            )
+        # Outer ring
+        outer_radius = min_dim * 0.50
+
+        # Central retinal region
+        center_radius = min_dim * 0.28
+
+        main_mask = (
+            distance <= main_radius
+        )
+
+        outer_ring_mask = (
+            (distance > main_radius)
+            &
+            (distance <= outer_radius)
+        )
+
+        center_mask = (
+            distance <= center_radius
+        )
+
+        # =================================================
+        # MASK VALIDATION
+        # =================================================
+
+        if (
+            np.sum(main_mask) < 100
+            or
+            np.sum(outer_ring_mask) < 50
+            or
+            np.sum(center_mask) < 50
+        ):
+
+            return {
+                "valid": False,
+                "confidence": 0.0,
+                "message":
+                    "Unable to identify a retinal field."
+            }
+
+        # =================================================
+        # FUNDUS FIELD BRIGHTNESS
+        # =================================================
+
+        main_gray = gray[main_mask]
+
+        outer_gray = gray[outer_ring_mask]
+
+        center_gray = gray[center_mask]
+
+        main_mean = float(
+            main_gray.mean()
+        )
+
+        outer_mean = float(
+            outer_gray.mean()
+        )
 
         center_mean = float(
-            center_pixels.mean()
+            center_gray.mean()
         )
 
-        outside_mean = float(
-            outside_pixels.mean()
+        circular_contrast = (
+            main_mean
+            -
+            outer_mean
         )
 
-        # -------------------------------------------------
-        # 6. CENTRAL RETINAL FIELD CHECK
-        # -------------------------------------------------
+        # =================================================
+        # DARK OUTER BORDER
+        # =================================================
 
-        if center_mean < 45:
-            return (
-                False,
-                "No clear retinal field detected. "
-                "Please upload a fundus image."
+        # A typical fundus photograph commonly has
+        # dark pixels/background surrounding the retinal field.
+
+        dark_outer_ratio = float(
+            np.mean(
+                outer_gray < 90
             )
-
-        # -------------------------------------------------
-        # 7. FIELD CONTRAST
-        # -------------------------------------------------
-
-        field_contrast = (
-            center_mean - outside_mean
         )
 
-        if field_contrast < 20:  # Balanced: still strict but works with real-world imaging conditions
-            return (
-                False,
-                "A clear circular retinal field could not be detected. Please upload a correct fundus image."
-            )
+        # =================================================
+        # DARK CORNERS
+        # =================================================
 
-        # -------------------------------------------------
-        # 8. DARK CORNER CHECK
-        # -------------------------------------------------
-
-        corner_size_y = max(
+        corner_h = max(
             1,
-            int(h * 0.15)
+            int(h * 0.16)
         )
 
-        corner_size_x = max(
+        corner_w = max(
             1,
-            int(w * 0.15)
+            int(w * 0.16)
         )
 
         corners = np.concatenate([
             gray[
-                :corner_size_y,
-                :corner_size_x
+                :corner_h,
+                :corner_w
             ].ravel(),
 
             gray[
-                :corner_size_y,
-                -corner_size_x:
+                :corner_h,
+                -corner_w:
             ].ravel(),
 
             gray[
-                -corner_size_y:,
-                :corner_size_x
+                -corner_h:,
+                :corner_w
             ].ravel(),
 
             gray[
-                -corner_size_y:,
-                -corner_size_x:
+                -corner_h:,
+                -corner_w:
             ].ravel()
         ])
 
@@ -274,52 +386,64 @@ def validate_fundus_image(image):
             corners.mean()
         )
 
-        # Make corner check MUCH stricter - fundus images ALWAYS have dark corners
-        if corner_mean > 150:  # Balanced: detects dark corners of fundus while accommodating real lighting
-            return (
-                False,
-                "No typical retinal fundus field detected. Please upload a correct fundus image."
+        # =================================================
+        # BRIGHT RETINAL FIELD OCCUPANCY
+        # =================================================
+
+        bright_inside_ratio = float(
+            np.mean(
+                main_gray > 45
             )
+        )
 
-        # -------------------------------------------------
-        # 9. RED/GREEN FUNDUS CHARACTERISTICS
-        # -------------------------------------------------
+        # =================================================
+        # RED / GREEN / BLUE CHARACTERISTICS
+        # =================================================
 
-        red_mean = float(red.mean())
-        green_mean = float(green.mean())
-        blue_mean = float(blue.mean())
+        red_mean = float(
+            main_gray.mean()
+        )
+
+        green_mean = float(
+            green[main_mask].mean()
+        )
+
+        blue_mean = float(
+            blue[main_mask].mean()
+        )
+
+        # Fundus images normally have a red/orange retinal
+        # appearance rather than arbitrary RGB distribution.
 
         warm_ratio = (
             red_mean + 1.0
         ) / (
             green_mean
-            + blue_mean
-            + 2.0
+            +
+            blue_mean
+            +
+            2.0
         )
 
-        if warm_ratio < 0.68:  # Balanced: detects fundus color characteristics while working with all cameras
-            return (
-                False,
-                "The uploaded image does not appear to be a retinal fundus photograph. Please upload a correct fundus image."
-            )
+        # =================================================
+        # RED DOMINANCE
+        # =================================================
 
-        # -------------------------------------------------
-        # 10. GREEN CHANNEL STRUCTURE
-        # -------------------------------------------------
-
-        green_std = float(
-            green.std()
+        red_green_difference = (
+            red_mean
+            -
+            green_mean
         )
 
-        if green_std < 15:  # Balanced: detects proper retinal structure while accepting various image qualities
-            return (
-                False,
-                "Insufficient retinal detail detected. Please upload a clearer correct fundus image."
-            )
+        red_blue_difference = (
+            red_mean
+            -
+            blue_mean
+        )
 
-        # -------------------------------------------------
-        # 11. CENTRAL COLOR CHARACTERISTICS
-        # -------------------------------------------------
+        # =================================================
+        # CENTRAL WARMTH
+        # =================================================
 
         center_red = float(
             red[center_mask].mean()
@@ -337,86 +461,431 @@ def validate_fundus_image(image):
             center_red + 1.0
         ) / (
             center_green
-            + center_blue
-            + 2.0
+            +
+            center_blue
+            +
+            2.0
         )
 
-        if center_warm_ratio < 0.65:  # Balanced: works with all camera setups while maintaining fundus detection
-            return (
-                False,
-                "The central region does not resemble a retinal fundus field. Please upload a correct fundus image."
-            )
+        # =================================================
+        # GREEN CHANNEL STRUCTURE
+        # =================================================
 
-        # -------------------------------------------------
-        # 12. SATURATION / COLOR INFORMATION
-        # -------------------------------------------------
+        green_inside = green[main_mask]
+
+        green_std = float(
+            green_inside.std()
+        )
+
+        # =================================================
+        # COLOR VARIATION
+        # =================================================
 
         channel_range = (
-            np.max(arr, axis=2)
-            - np.min(arr, axis=2)
+            np.max(
+                arr,
+                axis=2
+            )
+            -
+            np.min(
+                arr,
+                axis=2
+            )
         )
 
-        mean_saturation = float(
-            channel_range.mean()
+        mean_color_range = float(
+            channel_range[main_mask].mean()
         )
 
-        if mean_saturation < 15:
-            return (
-                False,
-                "Image contains insufficient color information "
-                "for fundus screening."
+        # =================================================
+        # LOCAL CONTRAST
+        # =================================================
+
+        center_std = float(
+            center_gray.std()
+        )
+
+        field_std = float(
+            main_gray.std()
+        )
+
+        # =================================================
+        # SATURATION-LIKE COLOR CHECK
+        # =================================================
+
+        max_channel = np.max(
+            arr,
+            axis=2
+        )
+
+        min_channel = np.min(
+            arr,
+            axis=2
+        )
+
+        saturation_like = (
+            max_channel
+            -
+            min_channel
+        )
+
+        saturation_inside = float(
+            saturation_like[main_mask].mean()
+        )
+
+        # =================================================
+        # FUNDUS FEATURES
+        # =================================================
+
+        checks = {
+
+            # 1. Retinal field must be brighter than
+            # surrounding region.
+            "circular_field":
+                circular_contrast >= 18,
+
+            # 2. Outer area should contain a reasonable
+            # amount of dark background.
+            "dark_outer_border":
+                dark_outer_ratio >= 0.12,
+
+            # 3. Corners should generally not look like
+            # a completely illuminated rectangular photo.
+            "dark_corners":
+                corner_mean <= 165,
+
+            # 4. Main field should contain actual visual
+            # information.
+            "retinal_occupancy":
+                bright_inside_ratio >= 0.55,
+
+            # 5. Fundus images normally have warm/red
+            # characteristics.
+            "warm_color":
+                warm_ratio >= 0.78,
+
+            # 6. Red should generally be stronger than
+            # green in the retinal field.
+            "red_green":
+                red_green_difference >= 5,
+
+            # 7. Red should generally be stronger than blue.
+            "red_blue":
+                red_blue_difference >= 15,
+
+            # 8. Central retinal area should also have
+            # warm characteristics.
+            "central_warmth":
+                center_warm_ratio >= 0.68,
+
+            # 9. Green channel should have texture/detail.
+            "green_structure":
+                green_std >= 15,
+
+            # 10. There should be meaningful color variation.
+            "color_variation":
+                mean_color_range >= 15,
+
+            # 11. Center must contain visual structure.
+            "center_detail":
+                center_std >= 12,
+
+            # 12. Whole retinal field needs sufficient
+            # color information.
+            "color_information":
+                saturation_inside >= 15,
+
+            # 13. Retinal field should not be almost uniform.
+            "field_texture":
+                field_std >= 18,
+
+            # 14. Center should not be completely dark.
+            "center_brightness":
+                center_mean >= 40
+        }
+
+        # =================================================
+        # SCORE
+        # =================================================
+
+        score = sum(
+            1
+            for value in checks.values()
+            if value
+        )
+
+        total_checks = len(checks)
+
+        # =================================================
+        # PRINT DEBUG INFORMATION
+        # =================================================
+
+        print("")
+        print("========================================")
+        print("       STRICT FUNDUS VALIDATION")
+        print("========================================")
+        print(
+            "Image size:",
+            width,
+            "x",
+            height
+        )
+        print(
+            "Aspect ratio:",
+            round(
+                aspect_ratio,
+                3
+            )
+        )
+        print(
+            "Score:",
+            score,
+            "/",
+            total_checks
+        )
+        print(
+            "Main mean:",
+            round(
+                main_mean,
+                2
+            )
+        )
+        print(
+            "Outer mean:",
+            round(
+                outer_mean,
+                2
+            )
+        )
+        print(
+            "Circular contrast:",
+            round(
+                circular_contrast,
+                2
+            )
+        )
+        print(
+            "Dark outer ratio:",
+            round(
+                dark_outer_ratio,
+                3
+            )
+        )
+        print(
+            "Corner mean:",
+            round(
+                corner_mean,
+                2
+            )
+        )
+        print(
+            "Bright inside:",
+            round(
+                bright_inside_ratio,
+                3
+            )
+        )
+        print(
+            "Warm ratio:",
+            round(
+                warm_ratio,
+                3
+            )
+        )
+        print(
+            "Red-Green:",
+            round(
+                red_green_difference,
+                2
+            )
+        )
+        print(
+            "Red-Blue:",
+            round(
+                red_blue_difference,
+                2
+            )
+        )
+        print(
+            "Center warm:",
+            round(
+                center_warm_ratio,
+                3
+            )
+        )
+        print(
+            "Green std:",
+            round(
+                green_std,
+                2
+            )
+        )
+        print(
+            "Color range:",
+            round(
+                mean_color_range,
+                2
+            )
+        )
+        print(
+            "Center std:",
+            round(
+                center_std,
+                2
+            )
+        )
+        print(
+            "Field std:",
+            round(
+                field_std,
+                2
+            )
+        )
+        print(
+            "Color information:",
+            round(
+                saturation_inside,
+                2
+            )
+        )
+
+        print("----------------------------------------")
+
+        for name, passed in checks.items():
+
+            print(
+                ("PASS " if passed else "FAIL "),
+                name
             )
 
-        # -------------------------------------------------
-        # 13. FINAL FUNDUS SCORE
-        # -------------------------------------------------
+        print("========================================")
 
-        score = 0
+        # =================================================
+        # HARD FINAL GATE
+        # =================================================
 
-        if 0.68 <= warm_ratio <= 1.8:  # Updated to match our new warm_ratio threshold
-            score += 1
+        # Require most characteristics to pass.
+        #
+        # IMPORTANT:
+        # circular_field + warm_color + red_green +
+        # central_warmth + color_variation are mandatory.
 
-        if center_mean > 45:
-            score += 1
+        mandatory_checks = [
 
-        if field_contrast > 15:  # Updated to match our new field_contrast threshold
-            score += 1
+            "circular_field",
+            "warm_color",
+            "red_green",
+            "central_warmth",
+            "color_variation"
+        ]
 
-        if corner_mean < 190:
-            score += 1
+        mandatory_passed = all(
+            checks[name]
+            for name in mandatory_checks
+        )
 
-        if green_std > 18:  # Updated to match our new green_std threshold
-            score += 1
+        # Need at least 11/14 total checks.
+        strong_score = (
+            score >= 11
+        )
 
-        if center_warm_ratio > 0.65:  # Updated to match our new center_warm_ratio threshold
-            score += 1
+        if (
+            not mandatory_passed
+            or
+            not strong_score
+        ):
 
-        if mean_saturation > 15:
-            score += 1
+            print("")
+            print(
+                "❌ FUNDUS VALIDATION FAILED"
+            )
+            print(
+                "❌ CLASSIFICATION BLOCKED"
+            )
+            print("========================================")
+            print("")
 
-        # Require strong evidence before AI classification
-        if score < 5:  # Balanced: requires enough checks to pass but works for real fundus images
-            return (
-                False,
-                "The uploaded image does not appear to be a retinal fundus photograph. Please upload a correct fundus image."
+            validation_confidence = min(
+                score / float(total_checks),
+                0.99
             )
 
-        return (
-            True,
-            "Fundus image validation passed."
+            return {
+                "valid": False,
+                "confidence":
+                    validation_confidence,
+                "message":
+                    "The uploaded image does not appear "
+                    "to be a valid retinal fundus photograph. "
+                    "Please upload a relevant fundus image."
+            }
+
+        # =================================================
+        # VALID
+        # =================================================
+
+        validation_confidence = min(
+            score / float(total_checks),
+            0.99
         )
+
+        print("")
+        print(
+            "✅ FUNDUS VALIDATION PASSED"
+        )
+        print(
+            "Score:",
+            score,
+            "/",
+            total_checks
+        )
+        print(
+            "Confidence:",
+            round(
+                validation_confidence,
+                3
+            )
+        )
+        print(
+            "➡️ Classification allowed"
+        )
+        print("========================================")
+        print("")
+
+        return {
+            "valid": True,
+            "confidence":
+                validation_confidence,
+            "message":
+                "Fundus image validation passed."
+        }
 
     except Exception as e:
 
-        print(
-            "Fundus validation error:",
-            e
-        )
+        # FAIL CLOSED
+        #
+        # If validation itself crashes,
+        # NEVER allow the image to reach the model.
 
-        return (
-            False,
-            "Unable to validate the uploaded image."
+        print("")
+        print(
+            "❌ FUNDUS VALIDATION ERROR"
         )
+        print(
+            repr(e)
+        )
+        print(
+            "❌ CLASSIFICATION BLOCKED"
+        )
+        print("========================================")
+
+        return {
+            "valid": False,
+            "confidence": 0.0,
+            "message":
+                "Unable to validate the uploaded image. "
+                "Please upload a valid retinal fundus image."
+        }
 
 
 # =========================================================
@@ -425,10 +894,17 @@ def validate_fundus_image(image):
 
 def prepare_image(file):
 
-    image = Image.open(file).convert("RGB")
+    image = Image.open(
+        file
+    ).convert("RGB")
+
+    image.load()
 
     if max(image.size) > 800:
-        image.thumbnail((800, 800))
+
+        image.thumbnail(
+            (800, 800)
+        )
 
     tensor = transform(
         image
@@ -464,7 +940,11 @@ def image_to_base64(image):
 # SAVE IMAGE
 # =========================================================
 
-def save_image(image, folder, filename):
+def save_image(
+    image,
+    folder,
+    filename
+):
 
     folder = Path(folder)
 
@@ -473,7 +953,11 @@ def save_image(image, folder, filename):
         exist_ok=True
     )
 
-    file_path = folder / filename
+    file_path = (
+        folder
+        /
+        filename
+    )
 
     image.save(
         file_path,
@@ -500,7 +984,11 @@ def create_screening_folder():
         f"{timestamp}_{unique_id}"
     )
 
-    folder = SCREENING_DIR / folder_name
+    folder = (
+        SCREENING_DIR
+        /
+        folder_name
+    )
 
     folder.mkdir(
         parents=True,
@@ -517,12 +1005,16 @@ def create_screening_folder():
 # HOME
 # =========================================================
 
-@app.route("/", methods=["GET"])
+@app.route(
+    "/",
+    methods=["GET"]
+)
 def home():
 
     return jsonify({
         "status": "success",
-        "message": "RetinaAI backend is running!"
+        "message":
+            "RetinaAI backend is running!"
     })
 
 
@@ -530,15 +1022,20 @@ def home():
 # LOGIN
 # =========================================================
 
-@app.route("/login", methods=["POST"])
+@app.route(
+    "/login",
+    methods=["POST"]
+)
 def login():
 
     data = request.get_json()
 
     if not data:
+
         return jsonify({
             "success": False,
-            "message": "Invalid request"
+            "message":
+                "Invalid request"
         }), 400
 
     email = data.get(
@@ -552,9 +1049,11 @@ def login():
     )
 
     if not email or not password:
+
         return jsonify({
             "success": False,
-            "message": "Email and password are required"
+            "message":
+                "Email and password are required"
         }), 400
 
     try:
@@ -578,38 +1077,59 @@ def login():
         conn.close()
 
         if not user:
+
             return jsonify({
                 "success": False,
-                "message": "Invalid email or password"
+                "message":
+                    "Invalid email or password"
             }), 401
 
         if not verify_password(
             password,
             user["password_hash"]
         ):
+
             return jsonify({
                 "success": False,
-                "message": "Invalid email or password"
+                "message":
+                    "Invalid email or password"
             }), 401
 
         return jsonify({
+
             "success": True,
-            "message": "Login successful",
+
+            "message":
+                "Login successful",
+
             "user": {
-                "id": user["id"],
-                "name": user["name"],
-                "email": user["email"],
-                "role": user["role"]
+
+                "id":
+                    user["id"],
+
+                "name":
+                    user["name"],
+
+                "email":
+                    user["email"],
+
+                "role":
+                    user["role"]
             }
+
         })
 
     except Exception as e:
 
-        print("Login error:", e)
+        print(
+            "Login error:",
+            repr(e)
+        )
 
         return jsonify({
             "success": False,
-            "message": "Login failed"
+            "message":
+                "Login failed"
         }), 500
 
 
@@ -617,15 +1137,20 @@ def login():
 # SIGNUP
 # =========================================================
 
-@app.route("/signup", methods=["POST"])
+@app.route(
+    "/signup",
+    methods=["POST"]
+)
 def signup():
 
     data = request.get_json()
 
     if not data:
+
         return jsonify({
             "success": False,
-            "message": "Invalid request"
+            "message":
+                "Invalid request"
         }), 400
 
     name = data.get(
@@ -649,33 +1174,49 @@ def signup():
     )
 
     if not name:
+
         return jsonify({
             "success": False,
-            "message": "Name is required"
+            "message":
+                "Name is required"
         }), 400
 
     if not email:
+
         return jsonify({
             "success": False,
-            "message": "Email is required"
+            "message":
+                "Email is required"
         }), 400
 
-    if "@" not in email or "." not in email:
+    if (
+        "@"
+        not in email
+        or
+        "."
+        not in email
+    ):
+
         return jsonify({
             "success": False,
-            "message": "Please enter a valid email address"
+            "message":
+                "Please enter a valid email address"
         }), 400
 
     if len(password) < 6:
+
         return jsonify({
             "success": False,
-            "message": "Password must be at least 6 characters"
+            "message":
+                "Password must be at least 6 characters"
         }), 400
 
     if password != confirm_password:
+
         return jsonify({
             "success": False,
-            "message": "Passwords do not match"
+            "message":
+                "Passwords do not match"
         }), 400
 
     try:
@@ -697,7 +1238,8 @@ def signup():
 
             return jsonify({
                 "success": False,
-                "message": "An account with this email already exists"
+                "message":
+                    "An account with this email already exists"
             }), 409
 
         password_hash = hash_password(
@@ -730,23 +1272,40 @@ def signup():
         conn.close()
 
         return jsonify({
+
             "success": True,
-            "message": "Account created successfully",
+
+            "message":
+                "Account created successfully",
+
             "user": {
-                "id": user_id,
-                "name": name,
-                "email": email,
-                "role": "admin"
+
+                "id":
+                    user_id,
+
+                "name":
+                    name,
+
+                "email":
+                    email,
+
+                "role":
+                    "admin"
             }
+
         }), 201
 
     except Exception as e:
 
-        print("Signup error:", e)
+        print(
+            "Signup error:",
+            repr(e)
+        )
 
         return jsonify({
             "success": False,
-            "message": "Unable to create account"
+            "message":
+                "Unable to create account"
         }), 500
 
 
@@ -754,13 +1313,18 @@ def signup():
 # IMAGE ENHANCEMENT
 # =========================================================
 
-@app.route("/enhance", methods=["POST"])
+@app.route(
+    "/enhance",
+    methods=["POST"]
+)
 def enhance():
 
     if "image" not in request.files:
+
         return jsonify({
             "success": False,
-            "message": "No image uploaded"
+            "message":
+                "No image uploaded"
         }), 400
 
     try:
@@ -768,75 +1332,123 @@ def enhance():
         file = request.files["image"]
 
         if not file or not file.filename:
+
             return jsonify({
                 "success": False,
-                "message": "Empty or missing image file"
+                "message":
+                    "Empty or missing image file"
             }), 400
 
-        image = Image.open(file).convert("RGB")
+        try:
 
-        # -------------------------------------------------
-        # FUNDUS VALIDATION
-        # -------------------------------------------------
+            image = Image.open(
+                file
+            ).convert("RGB")
 
-        is_fundus, validation_message = (
-            validate_fundus_image(image)
-        )
+            image.load()
 
-        if not is_fundus:
+        except Exception:
 
             return jsonify({
                 "success": False,
                 "validation_failed": True,
-                "message": validation_message
+                "error_type":
+                    "INVALID_IMAGE",
+                "message":
+                    "Invalid or corrupted image file."
             }), 422
 
-        # -------------------------------------------------
+        # =================================================
+        # FUNDUS VALIDATION
+        # =================================================
+
+        validation_result = (
+            validate_fundus_image(
+                image
+            )
+        )
+
+        print(
+            "Enhancement validation:",
+            validation_result
+        )
+
+        if not validation_result["valid"]:
+
+            return jsonify({
+                "success": False,
+                "validation_failed": True,
+                "error_type":
+                    "INVALID_RETINAL_IMAGE",
+                "message":
+                    "Please upload a relevant retinal "
+                    "fundus image for screening."
+            }), 422
+
+        # =================================================
         # ENHANCE
-        # -------------------------------------------------
+        # =================================================
 
         if max(image.size) > 800:
-            image.thumbnail((800, 800))
 
-        enhanced = ImageEnhance.Contrast(
-            image
-        ).enhance(1.25)
+            image.thumbnail(
+                (800, 800)
+            )
 
-        enhanced = ImageEnhance.Sharpness(
-            enhanced
-        ).enhance(1.2)
+        enhanced = (
+            ImageEnhance.Contrast(
+                image
+            ).enhance(1.25)
+        )
+
+        enhanced = (
+            ImageEnhance.Sharpness(
+                enhanced
+            ).enhance(1.2)
+        )
 
         return jsonify({
+
             "success": True,
-            "image": image_to_base64(
-                enhanced
-            )
+
+            "validation_failed": False,
+
+            "image":
+                image_to_base64(
+                    enhanced
+                )
         })
 
     except Exception as e:
 
         print(
             "Enhancement error:",
-            e
+            repr(e)
         )
 
         return jsonify({
             "success": False,
-            "message": "Invalid or corrupted image file."
-        }), 400
+            "message":
+                "Unable to process image."
+        }), 500
 
 
 # =========================================================
 # PREDICTION
 # =========================================================
 
-@app.route("/predict", methods=["POST"])
+@app.route(
+    "/predict",
+    methods=["POST"]
+)
 def predict():
 
     if "image" not in request.files:
+
         return jsonify({
             "success": False,
-            "message": "No image uploaded"
+            "message":
+                "No image uploaded"
         }), 400
 
     try:
@@ -844,98 +1456,148 @@ def predict():
         file = request.files["image"]
 
         if not file or not file.filename:
+
             return jsonify({
                 "success": False,
-                "message": "Empty or missing image file"
+                "message":
+                    "Empty or missing image file"
             }), 400
 
-        # -------------------------------------------------
+        # =================================================
         # OPEN IMAGE
-        # -------------------------------------------------
+        # =================================================
 
         try:
 
             validation_image = (
-                Image.open(file).convert("RGB")
+                Image.open(
+                    file
+                ).convert("RGB")
             )
 
-        except Exception:
+            validation_image.load()
+
+        except Exception as e:
+
+            print(
+                "Image decoding failed:",
+                repr(e)
+            )
 
             return jsonify({
                 "success": False,
-                "message": "Invalid or corrupted image file."
-            }), 400
+                "validation_failed": True,
+                "error_type":
+                    "INVALID_IMAGE",
+                "message":
+                    "Invalid or corrupted image file. "
+                    "Please upload a retinal fundus image."
+            }), 422
 
-        # -------------------------------------------------
+        # =================================================
         # FUNDUS VALIDATION
-        # -------------------------------------------------
+        # =================================================
 
-        is_fundus, validation_message = (
+        validation_result = (
             validate_fundus_image(
                 validation_image
             )
         )
 
-        print(f"=== VALIDATION DEBUG ===")
-        print(f"is_fundus: {is_fundus}")
-        print(f"validation_message: {validation_message}")
-        print(f"========================")
+        print("")
+        print("========================================")
+        print("        FUNDUS VALIDATION")
+        print("========================================")
+        print(
+            "Valid:",
+            validation_result["valid"]
+        )
+        print(
+            "Confidence:",
+            validation_result["confidence"]
+        )
+        print(
+            "Message:",
+            validation_result["message"]
+        )
+        print("========================================")
+        print("")
 
-        # IMPORTANT:
-        # Non-fundus image NEVER reaches EfficientNet.
+        # =================================================
+        # HARD BLOCK
+        # =================================================
 
-        if not is_fundus:
-            print(f"❌ VALIDATION FAILED - returning 422 error")
+        if not validation_result["valid"]:
+
+            print(
+                "❌ CLASSIFICATION BLOCKED"
+            )
+
             return jsonify({
                 "success": False,
                 "validation_failed": True,
-                "message": validation_message
+                "error_type":
+                    "INVALID_RETINAL_IMAGE",
+                "message":
+                    "Please upload a relevant retinal "
+                    "fundus image for screening."
             }), 422
-        else:
-            print(f"✅ VALIDATION PASSED - processing image")
 
-        # ABSOLUTE GUARANTEE: If validation failed, we can never proceed to return success
-        # This is a final failsafe to prevent any fake images from generating reports
-        if not is_fundus:
-            print(f"❌ FINAL FAILSAFE TRIGGERED - validation failed, blocking all processing")
+        # =================================================
+        # MODEL CHECK
+        # =================================================
+
+        if not model_loaded:
+
             return jsonify({
                 "success": False,
-                "validation_failed": True,
-                "message": validation_message
-            }), 422
+                "message":
+                    "AI model is not loaded."
+            }), 503
 
-        # -------------------------------------------------
-        # RESET FILE POINTER
-        # -------------------------------------------------
+        # =================================================
+        # RESET FILE
+        # =================================================
 
         file.seek(0)
 
-        # -------------------------------------------------
+        # =================================================
         # PREPARE IMAGE
-        # -------------------------------------------------
+        # =================================================
 
-        image, tensor = prepare_image(file)
+        image, tensor = (
+            prepare_image(
+                file
+            )
+        )
 
-        # -------------------------------------------------
+        # =================================================
         # MODEL PREDICTION
-        # -------------------------------------------------
+        # =================================================
 
-        if not model_loaded:
-            return jsonify({
-                "success": False,
-                "message": "AI model is not loaded."
-            }), 503
+        print(
+            "🚀 Valid fundus image -> "
+            "EfficientNet-B0"
+        )
 
         model.eval()
 
         with torch.no_grad():
 
-            output = model(tensor)
+            output = model(
+                tensor
+            )
 
-            probabilities = F.softmax(
-                output,
-                dim=1
-            )[0]
+            probabilities = (
+                F.softmax(
+                    output,
+                    dim=1
+                )[0]
+            )
+
+        # =================================================
+        # PREDICTED CLASS
+        # =================================================
 
         predicted_class = int(
             torch.argmax(
@@ -957,32 +1619,51 @@ def predict():
             referable_probability >= 0.50
         )
 
+        # =================================================
+        # DIAGNOSIS
+        # =================================================
+
         diagnoses = {
 
-            0: "No Diabetic Retinopathy",
+            0:
+                "No Diabetic Retinopathy",
 
-            1: "Mild Diabetic Retinopathy",
+            1:
+                "Mild Diabetic Retinopathy",
 
-            2: "Moderate Diabetic Retinopathy",
+            2:
+                "Moderate Diabetic Retinopathy",
 
-            3: "Severe Diabetic Retinopathy",
+            3:
+                "Severe Diabetic Retinopathy",
 
-            4: "Proliferative Diabetic Retinopathy"
+            4:
+                "Proliferative Diabetic Retinopathy"
         }
 
-        diagnosis = diagnoses[
-            predicted_class
-        ]
+        diagnosis = diagnoses.get(
+            predicted_class,
+            "Unknown"
+        )
+
+        # =================================================
+        # RESPONSE
+        # =================================================
 
         return jsonify({
 
             "success": True,
 
-            "grade": predicted_class,
+            "validation_failed": False,
 
-            "diagnosis": diagnosis,
+            "grade":
+                predicted_class,
 
-            "confidence": confidence,
+            "diagnosis":
+                diagnosis,
+
+            "confidence":
+                confidence,
 
             "referable_probability":
                 referable_probability,
@@ -991,21 +1672,28 @@ def predict():
                 referable,
 
             "probabilities": [
-                float(x.item())
+
+                float(
+                    x.item()
+                )
+
                 for x in probabilities
+
             ]
+
         })
 
     except Exception as e:
 
         print(
             "Prediction error:",
-            e
+            repr(e)
         )
 
         return jsonify({
             "success": False,
-            "message": str(e)
+            "message":
+                "Prediction failed. Please try again."
         }), 500
 
 
@@ -1013,14 +1701,18 @@ def predict():
 # GRAD-CAM + IMAGE PERSISTENCE
 # =========================================================
 
-@app.route("/gradcam", methods=["POST"])
+@app.route(
+    "/gradcam",
+    methods=["POST"]
+)
 def gradcam():
 
     if "image" not in request.files:
 
         return jsonify({
             "success": False,
-            "message": "No image uploaded"
+            "message":
+                "No image uploaded"
         }), 400
 
     try:
@@ -1031,7 +1723,8 @@ def gradcam():
 
             return jsonify({
                 "success": False,
-                "message": "Empty or missing image file"
+                "message":
+                    "Empty or missing image file"
             }), 400
 
         patient_id = request.form.get(
@@ -1039,44 +1732,81 @@ def gradcam():
             ""
         ).strip()
 
-        image = Image.open(
-            file
-        ).convert("RGB")
+        # =================================================
+        # OPEN IMAGE
+        # =================================================
 
-        # -------------------------------------------------
+        try:
+
+            image = (
+                Image.open(
+                    file
+                ).convert("RGB")
+            )
+
+            image.load()
+
+        except Exception:
+
+            return jsonify({
+                "success": False,
+                "validation_failed": True,
+                "error_type":
+                    "INVALID_IMAGE",
+                "message":
+                    "Invalid or corrupted image file."
+            }), 422
+
+        # =================================================
         # FUNDUS VALIDATION
-        # -------------------------------------------------
+        # =================================================
 
-        is_fundus, validation_message = (
+        validation_result = (
             validate_fundus_image(
                 image
             )
         )
 
-        # Non-fundus image stops here.
+        print(
+            "Grad-CAM validation:",
+            validation_result
+        )
 
-        if not is_fundus:
+        # =================================================
+        # HARD BLOCK
+        # =================================================
+
+        if not validation_result["valid"]:
+
+            print(
+                "❌ GRAD-CAM BLOCKED"
+            )
 
             return jsonify({
                 "success": False,
                 "validation_failed": True,
-                "message": validation_message
+                "error_type":
+                    "INVALID_RETINAL_IMAGE",
+                "message":
+                    "Please upload a relevant retinal "
+                    "fundus image for screening."
             }), 422
 
-        # -------------------------------------------------
+        # =================================================
         # MODEL CHECK
-        # -------------------------------------------------
+        # =================================================
 
         if not model_loaded:
 
             return jsonify({
                 "success": False,
-                "message": "AI model is not loaded."
+                "message":
+                    "AI model is not loaded."
             }), 503
 
-        # -------------------------------------------------
+        # =================================================
         # RESIZE
-        # -------------------------------------------------
+        # =================================================
 
         if max(image.size) > 800:
 
@@ -1088,22 +1818,27 @@ def gradcam():
             image
         ).unsqueeze(0)
 
-        tensor = tensor.to(device)
+        tensor = tensor.to(
+            device
+        )
 
-        # -------------------------------------------------
+        # =================================================
         # GRAD-CAM STORAGE
-        # -------------------------------------------------
+        # =================================================
 
         activations = []
         gradients = []
 
-        target_layer = model.features[-1]
+        target_layer = (
+            model.features[-1]
+        )
 
         def forward_hook(
             module,
             input,
             output
         ):
+
             activations.append(
                 output
             )
@@ -1113,6 +1848,7 @@ def gradcam():
             grad_input,
             grad_output
         ):
+
             gradients.append(
                 grad_output[0]
             )
@@ -1157,21 +1893,39 @@ def gradcam():
             forward_handle.remove()
             backward_handle.remove()
 
-        # -------------------------------------------------
+        # =================================================
         # GRAD-CAM CALCULATION
-        # -------------------------------------------------
+        # =================================================
 
-        activation = activations[0]
+        if (
+            len(activations) == 0
+            or
+            len(gradients) == 0
+        ):
 
-        gradient = gradients[0]
+            raise RuntimeError(
+                "Unable to generate Grad-CAM."
+            )
 
-        weights = gradient.mean(
-            dim=(2, 3),
-            keepdim=True
+        activation = (
+            activations[0]
+        )
+
+        gradient = (
+            gradients[0]
+        )
+
+        weights = (
+            gradient.mean(
+                dim=(2, 3),
+                keepdim=True
+            )
         )
 
         cam = (
-            weights * activation
+            weights
+            *
+            activation
         ).sum(
             dim=1
         )
@@ -1194,14 +1948,18 @@ def gradcam():
 
         cam = cam.numpy()
 
-        cam_image = Image.fromarray(
-            np.uint8(
-                cam * 255
+        cam_image = (
+            Image.fromarray(
+                np.uint8(
+                    cam * 255
+                )
             )
         )
 
-        cam_image = cam_image.resize(
-            image.size
+        cam_image = (
+            cam_image.resize(
+                image.size
+            )
         )
 
         cam_array = np.array(
@@ -1227,8 +1985,13 @@ def gradcam():
         )
 
         overlay = (
-            0.55 * original_array
-            + 0.45 * heatmap
+            0.55
+            *
+            original_array
+            +
+            0.45
+            *
+            heatmap
         )
 
         overlay = np.uint8(
@@ -1239,13 +2002,15 @@ def gradcam():
             )
         )
 
-        overlay_image = Image.fromarray(
-            overlay
+        overlay_image = (
+            Image.fromarray(
+                overlay
+            )
         )
 
-        # -------------------------------------------------
+        # =================================================
         # FREE MEMORY
-        # -------------------------------------------------
+        # =================================================
 
         del (
             activations,
@@ -1264,17 +2029,17 @@ def gradcam():
 
         gc.collect()
 
-        # -------------------------------------------------
+        # =================================================
         # CREATE SCREENING STORAGE
-        # -------------------------------------------------
+        # =================================================
 
         screening_folder, folder_name = (
             create_screening_folder()
         )
 
-        # -------------------------------------------------
+        # =================================================
         # SAVE ORIGINAL
-        # -------------------------------------------------
+        # =================================================
 
         original_filename = (
             "original.jpg"
@@ -1286,9 +2051,9 @@ def gradcam():
             original_filename
         )
 
-        # -------------------------------------------------
+        # =================================================
         # SAVE GRAD-CAM
-        # -------------------------------------------------
+        # =================================================
 
         gradcam_filename = (
             "gradcam.jpg"
@@ -1300,9 +2065,9 @@ def gradcam():
             gradcam_filename
         )
 
-        # -------------------------------------------------
+        # =================================================
         # DATABASE PATHS
-        # -------------------------------------------------
+        # =================================================
 
         image_relative_path = (
             f"uploads/screenings/"
@@ -1316,9 +2081,9 @@ def gradcam():
             f"{gradcam_filename}"
         )
 
-        # -------------------------------------------------
+        # =================================================
         # RESPONSE
-        # -------------------------------------------------
+        # =================================================
 
         return jsonify({
 
@@ -1350,18 +2115,20 @@ def gradcam():
 
             "patient_id":
                 patient_id
+
         })
 
     except Exception as e:
 
         print(
             "Grad-CAM error:",
-            e
+            repr(e)
         )
 
         return jsonify({
             "success": False,
-            "message": str(e)
+            "message":
+                "Unable to generate Grad-CAM."
         }), 500
 
 
@@ -1397,7 +2164,8 @@ def create_patient():
 
         return jsonify({
             "success": False,
-            "message": "Request body is required"
+            "message":
+                "Request body is required"
         }), 400
 
     name = data.get(
@@ -1423,7 +2191,8 @@ def create_patient():
 
         return jsonify({
             "success": False,
-            "message": "Patient name is required"
+            "message":
+                "Patient name is required"
         }), 400
 
     try:
@@ -1505,23 +2274,28 @@ def create_patient():
         conn.close()
 
         return jsonify({
+
             "success": True,
+
             "message":
                 "Patient created successfully",
+
             "patient":
                 dict(patient)
+
         }), 201
 
     except Exception as e:
 
         print(
             "Create patient error:",
-            e
+            repr(e)
         )
 
         return jsonify({
             "success": False,
-            "message": str(e)
+            "message":
+                str(e)
         }), 500
 
 
@@ -1561,21 +2335,26 @@ def get_patients():
             "success": True,
 
             "patients": [
+
                 dict(patient)
+
                 for patient in patients
+
             ]
+
         })
 
     except Exception as e:
 
         print(
             "Get patients error:",
-            e
+            repr(e)
         )
 
         return jsonify({
             "success": False,
-            "message": str(e)
+            "message":
+                str(e)
         }), 500
 
 
@@ -1610,7 +2389,8 @@ def get_patient(patient_id):
 
             return jsonify({
                 "success": False,
-                "message": "Patient not found"
+                "message":
+                    "Patient not found"
             }), 404
 
         screenings = conn.execute(
@@ -1635,21 +2415,26 @@ def get_patient(patient_id):
                 dict(patient),
 
             "screenings": [
+
                 dict(screening)
+
                 for screening in screenings
+
             ]
+
         })
 
     except Exception as e:
 
         print(
             "Get patient error:",
-            e
+            repr(e)
         )
 
         return jsonify({
             "success": False,
-            "message": str(e)
+            "message":
+                str(e)
         }), 500
 
 
@@ -1727,10 +2512,18 @@ def create_screening():
             """,
             (
                 patient_id,
-                data.get("image_path"),
-                data.get("grade"),
-                data.get("diagnosis"),
-                data.get("confidence"),
+                data.get(
+                    "image_path"
+                ),
+                data.get(
+                    "grade"
+                ),
+                data.get(
+                    "diagnosis"
+                ),
+                data.get(
+                    "confidence"
+                ),
                 data.get(
                     "referable_probability"
                 ),
@@ -1738,7 +2531,9 @@ def create_screening():
                     "referable",
                     0
                 ),
-                data.get("gradcam_path")
+                data.get(
+                    "gradcam_path"
+                )
             )
         )
 
@@ -1766,18 +2561,20 @@ def create_screening():
 
             "screening":
                 dict(screening)
+
         }), 201
 
     except Exception as e:
 
         print(
             "Create screening error:",
-            e
+            repr(e)
         )
 
         return jsonify({
             "success": False,
-            "message": str(e)
+            "message":
+                str(e)
         }), 500
 
 
@@ -1814,21 +2611,26 @@ def get_screenings(patient_id):
             "success": True,
 
             "screenings": [
+
                 dict(screening)
+
                 for screening in screenings
+
             ]
+
         })
 
     except Exception as e:
 
         print(
             "Get screenings error:",
-            e
+            repr(e)
         )
 
         return jsonify({
             "success": False,
-            "message": str(e)
+            "message":
+                str(e)
         }), 500
 
 
@@ -1911,19 +2713,24 @@ def dashboard_stats():
 
                 "total_referrals":
                     total_referrals
+
             },
 
             "recent_patients": [
+
                 dict(patient)
+
                 for patient in recent_patients
+
             ]
+
         })
 
     except Exception as e:
 
         print(
             "Dashboard stats error:",
-            e
+            repr(e)
         )
 
         return jsonify({
@@ -1984,13 +2791,14 @@ def get_screening(screening_id):
 
             "screening":
                 dict(screening)
+
         })
 
     except Exception as e:
 
         print(
             "Get screening error:",
-            e
+            repr(e)
         )
 
         return jsonify({
@@ -2047,16 +2855,20 @@ def get_all_screenings():
             "success": True,
 
             "screenings": [
+
                 dict(screening)
+
                 for screening in screenings
+
             ]
+
         })
 
     except Exception as e:
 
         print(
             "Get all screenings error:",
-            e
+            repr(e)
         )
 
         return jsonify({
@@ -2104,7 +2916,8 @@ def analytics():
 
         non_referable_cases = (
             total_screenings
-            - referable_cases
+            -
+            referable_cases
         )
 
         average_confidence = conn.execute(
@@ -2115,6 +2928,7 @@ def analytics():
         ).fetchone()[0]
 
         if average_confidence is None:
+
             average_confidence = 0
 
         grade_rows = conn.execute(
@@ -2129,11 +2943,13 @@ def analytics():
         ).fetchall()
 
         grade_distribution = {
+
             "0": 0,
             "1": 0,
             "2": 0,
             "3": 0,
             "4": 0
+
         }
 
         for row in grade_rows:
@@ -2162,11 +2978,16 @@ def analytics():
         monthly_activity = [
 
             {
-                "month": row["month"],
-                "count": row["count"]
+                "month":
+                    row["month"],
+
+                "count":
+                    row["count"]
+
             }
 
             for row in monthly_rows
+
         ]
 
         diagnosis_rows = conn.execute(
@@ -2189,16 +3010,19 @@ def analytics():
 
                 "count":
                     row["count"]
+
             }
 
             for row in diagnosis_rows
+
         ]
 
         if total_screenings > 0:
 
             referable_percentage = (
                 referable_cases
-                / total_screenings
+                /
+                total_screenings
             ) * 100
 
         else:
@@ -2245,14 +3069,16 @@ def analytics():
 
                 "diagnosis_distribution":
                     diagnosis_distribution
+
             }
+
         })
 
     except Exception as e:
 
         print(
             "Analytics error:",
-            e
+            repr(e)
         )
 
         return jsonify({
