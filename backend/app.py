@@ -96,10 +96,6 @@ def validate_fundus_image(image):
     """
 
     try:
-        # FORCED FAIL FOR TESTING - REMOVE THIS AFTER YOU CONFIRM POPUP WORKS!
-        # This will make ALL images fail validation temporarily so you can test the popup
-        return (False, "Test validation failure - all images blocked temporarily")
-        
         # -------------------------------------------------
         # Convert to RGB
         # -------------------------------------------------
